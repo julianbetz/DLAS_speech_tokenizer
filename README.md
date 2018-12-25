@@ -1,2 +1,2 @@
 # DLAS_speech_tokenizer
-Seminar Project from the Deep Learning and Speach Seminar from Wintersemester 18/19 at the University of Hamburg.
+Seminar Project for the Deep Learning for Language and Speech seminar in winter semester 2018/2019 at the University of Hamburg.
