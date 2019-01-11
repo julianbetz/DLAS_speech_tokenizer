@@ -160,14 +160,42 @@ class DataLoader:
                    (evl_ids, *self.load(evl_ids)),
                    (val_ids, *self.load(val_ids)))
 
+def align_seqs_to_alternating_labels(align_seqs, lengths):
+    """Converts the specified alignment data to labels.
+
+    Labels encode word boundaries in checkerboard representation.
+    A single align sequence by itself can be provided as a list of rank 2.
+
+    Args:
+        align_seqs (numpy.ndarray/list<numpy.ndarray>): The alignment data.
+        lengths (int/list<int>): The total number of frames for the alignment sequences.
+    Returns:
+        feat_seqs (numpy.ndarray/list<numpy.ndarray>): The labels corresponding to the specified alignment data.
+    """
+    if type(align_seqs[0][0]) not in [list, tuple, np.ndarray]: # Single alignment sequence
+        label_seq = np.full((lengths,), 0.5, dtype=np.float32)
+        current_class = 0.0
+        for i, (start, duration, tag) in enumerate(align_seqs):
+            label_seq[start:start+duration] = current_class
+            if (DataLoader.TAGS_ALL[tag] == 'E'
+                or DataLoader.TAGS_ALL[tag] == 'S'
+                or (DataLoader.TAGS_ALL[tag] == None
+                    and align_seqs.shape[0] > i + 1
+                    and DataLoader.TAGS_ALL[align_seqs[i + 1][2]] != None)): # Assumes that all non-phone tags can be treated as the same token
+                current_class = 1.0 - current_class
+        return label_seq
+    else:                               # List of alignment sequences
+        label_seqs = [align_seqs_to_alternating_labels(align_seq, length) for align_seq, length in zip(align_seqs, lengths)]
+        return label_seqs
+
 def train_input_fn(features, labels, batch_size): # TODO Remove batch_size
     dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
     dataset = dataset.shuffle(1000).repeat().batch(batch_size) # TODO
-    return dataset.make_one_shot_iterator().get_next()
+    return dataset.make_one_shot_iterator().get_next()         # TODO ???
 
 def eval_input_fn(features, labels, batch_size): # TODO Remove batch_size
     dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
     dataset = dataset.batch(batch_size)
-    return dataset
+    return dataset                      # TODO One shot-iterator necessary?
     
 # data_handler.py ends here

@@ -20,7 +20,7 @@ from matplotlib import pyplot as plt
 from kaldi_io import readArk
 import json
 
-from data_handler import DataLoader, train_input_fn, eval_input_fn
+from data_handler import DataLoader, align_seqs_to_alternating_labels, train_input_fn, eval_input_fn
 from util import progress
 from model import model_fn
 
@@ -130,7 +130,9 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
             model_dir=model_dir+'/fold_%03d'%(i,))
         batch_size = len(trn_ids) if batch_size < 1 else batch_size
         # Evaluation
-        feat_seqs, _, _ = loader.load(evl_ids)
+        feat_seqs, align_seqs, _ = loader.load(evl_ids)
+        label_seqs = align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs])
+        print(all([label_seq.shape[0] == align_seq[-1][0] + align_seq[-1][1] for label_seq, align_seq in zip(label_seqs, align_seqs)]))
         feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
         label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
         eval_result = estimator.evaluate(input_fn=lambda:eval_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0]))
@@ -172,6 +174,8 @@ if __name__ == '__main__':
     # plt.switch_backend('QT4Agg')
     # loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=20, seed=1000)
     # # print(loader.load(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1']))
+    # feat_seqs, align_seqs, phone_seqs = loader.load(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
+    # print(align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs]))
     # loader.plot(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
     # loader.plot('spk0000000_EvaZeisel_2001-0002861-0003242-1')
     # for i, ((trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs),
