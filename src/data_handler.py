@@ -3,7 +3,7 @@
 # Filename: data_handler.py
 # Author: Julian Betz
 # Created: 2018-12-23
-# Version: 2018-12-25
+# Version: 2019-01-11
 # 
 # Description: A class for converting and loading the dataset.
 
@@ -11,6 +11,7 @@ import sys
 import os
 import numpy as np
 from numpy.random import RandomState
+from tensorflow.data import Dataset
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.utils import shuffle
 from matplotlib import pyplot as plt
@@ -116,7 +117,7 @@ class DataLoader:
         """
         r = RandomState(self.seed)
         n_samples = min(float('inf') if n_samples is None else n_samples, len(self.ids) - self.tst_size)
-        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size+n_samples)[self.tst_size:]
+        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size+n_samples)[self.tst_size:] # TODO Verify that a limit of inf does not break sklearn.util.shuffle
         kfolder = KFold(n_splits=n_splits, shuffle=False)
         for dev_indices, val_indices in kfolder.split(ids):
             trn_indices, evl_indices = train_test_split(dev_indices, test_size=None, train_size=trn_size, shuffle=True, random_state=r)
@@ -158,5 +159,15 @@ class DataLoader:
             yield ((trn_ids, *self.load(trn_ids)),
                    (evl_ids, *self.load(evl_ids)),
                    (val_ids, *self.load(val_ids)))
+
+def train_input_fn(features, labels, batch_size): # TODO Remove batch_size
+    dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
+    dataset = dataset.shuffle(1000).repeat().batch(batch_size) # TODO
+    return dataset.make_one_shot_iterator().get_next()
+
+def eval_input_fn(features, labels, batch_size): # TODO Remove batch_size
+    dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
+    dataset = dataset.batch(batch_size)
+    return dataset
     
 # data_handler.py ends here
