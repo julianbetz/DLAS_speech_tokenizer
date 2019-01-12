@@ -169,22 +169,22 @@ def predict(estimator, loader):         # TODO
     #     print('%.4f' % (pred_dict['probabilities'][class_id],), iris_data.SPECIES[class_id])
 
 if __name__ == '__main__':
-    # main()
+    main()
 
-    plt.switch_backend('QT4Agg')
-    loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=20, seed=1000)
-    print('Test set IDs: %s' % (loader.test_set_ids(),))
-    feat_seqs, align_seqs, phone_seqs = loader.load(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
-    print(align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs]))
-    loader.plot(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
-    loader.plot('spk0000000_EvaZeisel_2001-0002861-0003242-1')
-    for i, ((trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs),
-            (evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs),
-            (val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs)) in enumerate(loader.kfolds(n_samples=10, n_splits=5, trn_size=0.625)):
-        print('Fold %d' % (i,))
-        print(trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs, sep='\n')
-        print(evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs, sep='\n')
-        print(val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs, sep='\n')
-        print()
+    # plt.switch_backend('QT4Agg')
+    # loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=20, seed=1000)
+    # print('Test set IDs: %s' % (loader.test_set_ids(),))
+    # feat_seqs, align_seqs, phone_seqs = loader.load(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
+    # print(align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs]))
+    # loader.plot(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
+    # loader.plot('spk0000000_EvaZeisel_2001-0002861-0003242-1')
+    # for i, ((trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs),
+    #         (evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs),
+    #         (val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs)) in enumerate(loader.kfolds(n_samples=10, n_splits=5, trn_size=0.625)):
+    #     print('Fold %d' % (i,))
+    #     print(trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs, sep='\n')
+    #     print(evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs, sep='\n')
+    #     print(val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs, sep='\n')
+    #     print()
     
 # main.py ends here
