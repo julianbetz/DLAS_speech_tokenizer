@@ -30,7 +30,7 @@ def model_fn(features, labels, mode, params): # TODO
     tf.summary.scalar('accuracy', accuracy[1])
     if mode == tf.estimator.ModeKeys.EVAL:
         return tf.estimator.EstimatorSpec(mode, loss=loss, eval_metric_ops=metrics)
-    optimizer = tf.train.AdagradOptimizer(learning_rate=0.1)
+    optimizer = tf.train.AdagradOptimizer(learning_rate=params['learning_rate'])
     train_op = optimizer.minimize(loss, global_step=tf.train.get_global_step())
     return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
 

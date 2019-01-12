@@ -14,45 +14,93 @@ import click
 import re
 from time import time
 import datetime
+from itertools import count
 import numpy as np
 import tensorflow as tf
+from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
 from matplotlib import pyplot as plt
 from kaldi_io import readArk
 import json
 
 from data_handler import DataLoader, align_seqs_to_alternating_labels, train_input_fn, eval_input_fn
-from util import progress
 from model import model_fn
+from util import progress
 
 SEED = 3735758343
 # Sample input data to analyze its structure, making sure that the DateLoader is only instantiated once
 N_FEATURES = [loader.load(loader.ids[0])[0].shape[1] for loader in [DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=0, seed=SEED)]][0]
 FEATURE_COLS = [tf.feature_column.numeric_column(key='features', shape=N_FEATURES)]
+HYPERPARAMS = dict(learning_rate=hp.loguniform('learning_rate', -7, -3)) # TODO Add hyperparameters
 
 @click.command()
 @click.option('--alignments/--no-alignments', '-a/', default=False, help='Whether to convert alignment data', show_default=True)
 @click.option('--spectrograms/--no-spectrograms', '-s/', default=False, help='Whether to convert the spectrograms', show_default=True)
-@click.option('--operation', '-o', type=click.Choice(['cross_validate']), help='The operation to perform on the estimator')
+@click.option('--operation', '-o', type=click.Choice(['hyperoptimize']), help='The operation to perform on the estimator')
 @click.option('--model_dir', '-d', default=None, type=str, help='Where to store model data.')
-@click.option('--n_samples', '-n', default=None, type=int, help='The number of samples to use in total, if available.')
-@click.option('--tst_size', default=0.2, help='The number/proportion of samples from the complete dataset to reserve for testing')
-@click.option('--n_splits', default=5, help='The number k of splits for cross-validation.')
-@click.option('--trn_size', default=0.75, help='The proportion of training data per fold in cross-validation. The remaining data of this fold is provided as evaluation data.')
-@click.option('--batch_size', '-b', default=0, help='The batch size for training. The full training set is indicated by 0.')
-@click.option('--n_steps', '-s', default=1, help='The number of steps for training')
+@click.option('--tst_size', type=str, help='The number/proportion of samples from the complete dataset to reserve for testing.  [default: 0.2]', show_default=False)
+@click.option('--n_samples', '-n', default=None, type=int, help='The maximum number of samples to use in k-fold cross-validation from the non-testing portion of the dataset. If not specified, the whole non-testing portion is used.')
+@click.option('--n_splits', default=5, help='The number k of splits for cross-validation.', show_default=True)
+@click.option('--trn_size', default=0.75, help='The proportion of training data per fold in cross-validation. The remaining data of this fold is provided as evaluation data.', show_default=True)
+@click.option('--batch_size', '-b', default=None, type=int, help='The batch size for training. If not specified, the full training set is used.')
+@click.option('--n_steps', '-s', default=1, help='The number of steps for training.', show_default=True)
+@click.option('--max_hyperparam_sets', default=100, help='The maximum number of hyperparameter sets to try during hyperparameter optimization.', show_default=True)
 # @click.option('--gpu/--cpu', '-g/-c', default=False, help='Whether to use a GPU.', show_default=True)
-def main(alignments, spectrograms, operation, model_dir, n_samples, tst_size, n_splits, trn_size, batch_size, n_steps):
+def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_splits, trn_size, batch_size, n_steps, max_hyperparam_sets):
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
+    print('Tensorflow debugging output is suppressed')
+    # Parse the test set size
+    if tst_size == None:
+        tst_size = 0.2
+    else:
+        error_message = 'Error: Invalid value for "--tst_size": "%s" is neither a valid integer nor a valid float' % (tst_size,)
+        if '.' in tst_size or 'e' in tst_size or 'E' in tst_size:
+            try:
+                tst_size = float(tst_size)
+            except ValueError:
+                print(error_message)
+        else:
+            try:
+                tst_size = int(tst_size)
+            except ValueError:
+                print(error_message)
+    # Verify that the there was at least one operation requested
     if not (alignments or spectrograms or operation):
         print('No options given, try invoking the command with "--help" for help.')
+    # Convert the data to a fastly loadable representation
     convert(alignments, spectrograms)
+    # Create default model directory if there is none
     if model_dir is None:
         now = datetime.datetime.now()
         model_dir = os.path.dirname(os.path.abspath(__file__)) + ('/../models/%s_%s' % (now.date(), now.time()))
     model_dir = os.path.abspath(os.path.expanduser(model_dir))
-    print('The models will be saved to %s' % (model_dir,))
+    print('Models will be saved to %s' % (model_dir,))
+    # Handle data loading
     loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=tst_size, seed=SEED)
-    if operation == 'cross_validate':
-        cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_steps)
+    if operation == 'hyperoptimize':    # Hyperparameter optimization
+        trial_index = iter(count())
+        def objective(hyperparams):
+            trial_id = next(trial_index)
+            print('Trial %d' % (trial_id,))
+            trial_dir = model_dir + ('/trial_%06d' % (trial_id,))
+            if not os.path.exists(trial_dir):
+                os.makedirs(trial_dir)
+            with open(trial_dir + '/hyperparams.json', 'w') as hyperparams_file:
+                json.dump(hyperparams, hyperparams_file)
+            loss = cross_validate(
+                trial_dir, loader,
+                n_samples, n_splits, trn_size, batch_size, n_steps,
+                **hyperparams)
+            report = {'loss' : loss, 'status' : STATUS_OK}
+            with open(trial_dir + '/report.json', 'w') as report_file:
+                json.dump(report, report_file)
+            return report
+        trials = Trials()
+        hyperparams_best = fmin(fn=objective, space=HYPERPARAMS,
+                                algo=tpe.suggest, max_evals=max_hyperparam_sets,
+                                trials=trials)
+        print('Best hyperparameters: %s' % (hyperparams_best,))
+        with open(model_dir + '/hyperparams_best.json', 'w') as hyperparams_best_file:
+            json.dump(hyperparams_best, hyperparams_best_file)
     # elif operation == 'train':
     #     train(estimator, loader, n_steps)
     # elif operation == 'evaluate':
@@ -118,21 +166,24 @@ def convert(alignments, spectrograms):
         progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 # TODO Add relevant model parameters for cross-validation
-def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_steps):
+def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_steps, learning_rate): # TODO learning_rate is used only for debugging purposes. Use hyperparams that are actually needed instead.
+    maximize_batch_size = batch_size is None
+    loss = 0.0
     for i, (trn_ids, evl_ids, val_ids) in enumerate(loader.kfolds_ids(n_samples=n_samples, n_splits=n_splits, trn_size=trn_size)):
-        print('Fold %3d' % (i,))
+        progress.print_bar(i, n_splits, 20, 'Cross-validation: ┃', '┃')
         estimator = tf.estimator.Estimator(
             model_fn=model_fn,
-            params={
+            params={                    # TODO The architectural params are only for debugging purposes
                 'feature_columns' : FEATURE_COLS,
                 'hidden_units' : [10, 10],
-                'n_classes' : N_FEATURES},  # TODO Only for debugging purposes
+                'n_classes' : N_FEATURES,
+                'learning_rate' : learning_rate},
             model_dir=model_dir+'/fold_%03d'%(i,))
-        batch_size = len(trn_ids) if batch_size < 1 else batch_size
+        batch_size = len(trn_ids) if maximize_batch_size else batch_size
+        # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
         # Evaluation
         feat_seqs, align_seqs, _ = loader.load(evl_ids)
         label_seqs = align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs])
-        print(all([label_seq.shape[0] == align_seq[-1][0] + align_seq[-1][1] for label_seq, align_seq in zip(label_seqs, align_seqs)]))
         feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
         label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
         eval_result = estimator.evaluate(input_fn=lambda:eval_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0]))
@@ -152,6 +203,10 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
         feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
         label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
         eval_result = estimator.evaluate(input_fn=lambda:eval_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0])) # TODO Is logged as evalutation
+        loss += eval_result['loss']
+    loss /= n_splits
+    progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
+    return loss
 
 def train(estimator, loader, n_steps):    # TODO
     raise NotImplementedError
