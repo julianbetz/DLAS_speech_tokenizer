@@ -3,7 +3,7 @@
 # Filename: data_handler.py
 # Author: Julian Betz
 # Created: 2018-12-23
-# Version: 2019-01-11
+# Version: 2019-01-12
 # 
 # Description: A class for converting and loading the dataset.
 
@@ -97,6 +97,18 @@ class DataLoader:
             plt.get_current_fig_manager().window.showMaximized()
             plt.show()
 
+    def test_set_ids(self):
+        """Returns the IDs for the test set.
+        """
+        r = RandomState(self.seed)
+        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size)
+        print(ids, type(ids))
+        return ids
+
+    def test_set(self):
+        tst_ids = self.test_set_ids()
+        return (tst_ids, *self.load(tst_ids))
+
     def kfolds_ids(self, n_samples=None, n_splits=10, trn_size=0.8):
         """Iterates over folds to provide the IDs with which to index the appropriate data.
 
@@ -117,7 +129,7 @@ class DataLoader:
         """
         r = RandomState(self.seed)
         n_samples = min(float('inf') if n_samples is None else n_samples, len(self.ids) - self.tst_size)
-        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size+n_samples)[self.tst_size:] # TODO Verify that a limit of inf does not break sklearn.util.shuffle
+        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size+n_samples)[self.tst_size:]
         kfolder = KFold(n_splits=n_splits, shuffle=False)
         for dev_indices, val_indices in kfolder.split(ids):
             trn_indices, evl_indices = train_test_split(dev_indices, test_size=None, train_size=trn_size, shuffle=True, random_state=r)
