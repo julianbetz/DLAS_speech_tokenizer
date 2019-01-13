@@ -3,7 +3,7 @@
 # Filename: model.py
 # Author: Julian Betz
 # Created: 2019-01-10
-# Version: 2019-01-11
+# Version: 2019-01-13
 #
 # Description:
 #     Estimator architecture.
@@ -13,7 +13,21 @@ import tensorflow as tf
 import pandas as pd
 
 def model_fn(features, labels, mode, params): # TODO
-    net = tf.feature_column.input_layer(features, params['feature_columns'])
+    # print('<Called model function>')
+
+    # Directly access features/labels since feature column implementations for sequences are still experimental
+    # TODO@Flo: The following (commented) lines are the proper way to access the features for the dynamic RNN
+    # net = features['features']          # Input layer in batches
+    # length = features['length']         # Sequence lengths
+
+    # TODO@Flo: The following lines are only temporary (the below network is currently not adapted to sequences)
+    net = features['features'][:, 0]
+    if mode != tf.estimator.ModeKeys.PREDICT:
+        labels = tf.cast(labels[:, 0], tf.int64)
+
+    # net = tf.constant(0.5, shape=(BATCH_SIZE, N_FEATURES), dtype=tf.float32)
+    # labels = tf.constant(0, shape=(BATCH_SIZE,), dtype=tf.int64)
+
     for units in params['hidden_units']:
         net = tf.layers.dense(net, units=units, activation=tf.nn.relu)
     logits = tf.layers.dense(net, units=params['n_classes'], activation=None)

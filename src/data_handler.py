@@ -3,7 +3,7 @@
 # Filename: data_handler.py
 # Author: Julian Betz
 # Created: 2018-12-23
-# Version: 2019-01-12
+# Version: 2019-01-13
 # 
 # Description: A class for converting and loading the dataset.
 
@@ -11,12 +11,15 @@ import sys
 import os
 import numpy as np
 from numpy.random import RandomState
+import tensorflow as tf
 from tensorflow.data import Dataset
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.utils import shuffle
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 import json
+
+N_FEATURES = 40                         # TODO Make non-hardcoded
 
 class DataLoader:
     TAGS_ALL = [None, 'B', 'I', 'E', 'S']
@@ -200,14 +203,84 @@ def align_seqs_to_alternating_labels(align_seqs, lengths):
         label_seqs = [align_seqs_to_alternating_labels(align_seq, length) for align_seq, length in zip(align_seqs, lengths)]
         return label_seqs
 
-def train_input_fn(features, labels, batch_size): # TODO Remove batch_size
-    dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
-    dataset = dataset.shuffle(1000).repeat().batch(batch_size) # TODO
-    return dataset.make_one_shot_iterator().get_next()         # TODO ???
+def trn_input_fn(loader, ids, batch_size, random_state):
+    """Provides the input data for training.
 
-def eval_input_fn(features, labels, batch_size): # TODO Remove batch_size
-    dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
-    dataset = dataset.batch(batch_size)
-    return dataset                      # TODO One shot-iterator necessary?
-    
+    Data is returned in the format used by tf.estimator.Estimator.
+
+    Args:
+        loader: The DataLoader instance to handle the loading of datapoints.
+        ids (list<str>): The IDs of the datapoints to train on.
+        batch_size (int): The number of samples that comprise a batch.
+        random_state (numpy.random.RandomState): Random state instance to shuffle the dataset prior to batching. Random states are used to enable different permutations of the training set for different epochs while ensuring that data is not prefetched.
+    Returns:
+        next_batch: A nested structure of tensors that iterate over the dataset.
+            Every iteration contains a batch of data.
+    """
+    ids = shuffle(ids, random_state=random_state)
+    def load():
+        for i in ids:
+            feat_seq, align_seq, _ = loader.load(i)
+            length = feat_seq.shape[0]
+            label_seq = align_seqs_to_alternating_labels(align_seq, length)
+            # print('<Loaded %s>' % (i,))
+            yield {'features' : feat_seq, 'length' : length}, label_seq
+    dtypes = ({'features' : tf.float32, 'length' : tf.int64}, tf.float32)
+    shapes = ({'features' : tf.TensorShape([None, N_FEATURES]), 'length' : tf.TensorShape([])}, tf.TensorShape([None]))
+    dataset = Dataset.from_generator(load, dtypes, shapes)
+    dataset = dataset.padded_batch(batch_size, shapes)
+    # print('<Called training input function>')
+    return dataset.make_one_shot_iterator().get_next()
+
+def evl_input_fn(loader, ids):
+    """Provides the input data for evaluation.
+
+    Data is returned in the format used by tf.estimator.Estimator.
+
+    Args:
+        loader: The DataLoader instance to handle the loading of datapoints.
+        ids (list<str>): The IDs of the datapoints to evaluate the estimator on.
+    Returns:
+        next_batch: A nested structure of tensors that iterate over the dataset.
+            Every iteration contains a batch of data.
+    """
+    def load():
+        for i in ids:
+            feat_seq, align_seq, _ = loader.load(i)
+            length = feat_seq.shape[0]
+            label_seq = align_seqs_to_alternating_labels(align_seq, length)
+            # print('<Loaded %s>' % (i,))
+            yield {'features' : feat_seq, 'length' : length}, label_seq
+    dtypes = ({'features' : tf.float32, 'length' : tf.int64}, tf.float32)
+    shapes = ({'features' : tf.TensorShape([None, N_FEATURES]), 'length' : tf.TensorShape([])}, tf.TensorShape([None]))
+    dataset = Dataset.from_generator(load, dtypes, shapes)
+    dataset = dataset.padded_batch(len(ids), shapes)
+    # print('<Called evaluation input function>')
+    return dataset.make_one_shot_iterator().get_next()
+
+def prd_input_fn(loader, ids):
+    """Provides the input data for prediction.
+
+    Data is returned in the format used by tf.estimator.Estimator.
+
+    Args:
+        loader: The DataLoader instance to handle the loading of datapoints.
+        ids (list<str>): The IDs of the datapoints to predict labels for.
+    Returns:
+        next_batch: A nested structure of tensors that iterate over the dataset.
+            Every iteration contains a batch of data.
+    """
+    def load():
+        for i in ids:
+            feat_seq, _, _ = loader.load(i)
+            length = feat_seq.shape[0]
+            # print('<Loaded %s>' % (i,))
+            yield {'features' : feat_seq, 'length' : length}
+    dtypes = {'features' : tf.float32, 'length' : tf.int64}
+    shapes = {'features' : tf.TensorShape([None, N_FEATURES]), 'length' : tf.TensorShape([])}
+    dataset = Dataset.from_generator(load, dtypes, shapes)
+    dataset = dataset.padded_batch(len(ids), shapes)
+    # print('<Called prediction input function>')
+    return dataset.make_one_shot_iterator().get_next()
+
 # data_handler.py ends here
