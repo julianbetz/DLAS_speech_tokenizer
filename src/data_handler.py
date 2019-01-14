@@ -7,22 +7,23 @@
 # 
 # Description: A class for converting and loading the dataset.
 
-import sys
+import json
 import os
+
 import numpy as np
-from numpy.random import RandomState
 import tensorflow as tf
-from tensorflow.data import Dataset
-from sklearn.model_selection import KFold, train_test_split
-from sklearn.utils import shuffle
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
-import json
+from numpy.random import RandomState
+from sklearn.model_selection import KFold, train_test_split
+from sklearn.utils import shuffle
+from tensorflow.data import Dataset
 
-N_FEATURES = 40                         # TODO Make non-hardcoded
+N_FEATURES = 40  # TODO Make non-hardcoded
 TRAIN_MODE = 0
 EVAL_MODE = 1
 PRED_MODE = 2
+
 
 class DataLoader:
     TAGS_ALL = [None, 'B', 'I', 'E', 'S']
@@ -57,7 +58,7 @@ class DataLoader:
             align_seqs (numpy.ndarray/list<numpy.ndarray>): The alignment data for the specified IDs.
             phone_seqs (list<str>/list<list<str>>): Phonetic data for the specified IDs.
         """
-        tags_all_inv = {v : i for i, v in enumerate(DataLoader.TAGS_ALL)}
+        tags_all_inv = {v: i for i, v in enumerate(DataLoader.TAGS_ALL)}
         if type(ids) == str:
             feat_seq = np.load(self.data_dir + '/utterances/%s.npy' % (ids,))
             with open(self.data_dir + '/utterances/%s.json' % (ids,), 'r') as file_handler:
@@ -90,10 +91,12 @@ class DataLoader:
         Args:
             ids (str/iterable<str>): The ID / the collection of IDs that should be displayed. Data is plotted in the order in which the IDs are provided.
         """
-        for i, feat_seq, align_seq, phone_seq in (((ids, *self.load(ids)),) if type(ids) == str else zip(ids, *self.load(ids))):
+        for i, feat_seq, align_seq, phone_seq in (
+                ((ids, *self.load(ids)),) if type(ids) == str else zip(ids, *self.load(ids))):
             plt.imshow(feat_seq.transpose(), origin='lower', cmap='gray_r')
             for token in align_seq:
-                rect = Rectangle((token[0], 0), token[1], feat_seq.shape[1], linewidth=0, facecolor=DataLoader.TAG_COLORS[token[2]])
+                rect = Rectangle((token[0], 0), token[1], feat_seq.shape[1], linewidth=0,
+                                 facecolor=DataLoader.TAG_COLORS[token[2]])
                 # plt.axvline(token[0], c=['black', 'green', 'blue', 'red', 'yellow'][token[2]])
                 plt.gca().add_patch(rect)
             plt.xticks(align_seq[:, 0], phone_seq)
@@ -135,10 +138,11 @@ class DataLoader:
         """
         r = RandomState(self.seed)
         n_samples = min(float('inf') if n_samples is None else n_samples, len(self.ids) - self.tst_size)
-        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size+n_samples)[self.tst_size:]
+        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size + n_samples)[self.tst_size:]
         kfolder = KFold(n_splits=n_splits, shuffle=False)
         for dev_indices, val_indices in kfolder.split(ids):
-            trn_indices, evl_indices = train_test_split(dev_indices, test_size=None, train_size=trn_size, shuffle=True, random_state=r)
+            trn_indices, evl_indices = train_test_split(dev_indices, test_size=None, train_size=trn_size, shuffle=True,
+                                                        random_state=r)
             yield ([ids[trn_index] for trn_index in trn_indices],
                    [ids[evl_index] for evl_index in evl_indices],
                    [ids[val_index] for val_index in val_indices])
@@ -178,6 +182,7 @@ class DataLoader:
                    (evl_ids, *self.load(evl_ids)),
                    (val_ids, *self.load(val_ids)))
 
+
 def align_seqs_to_alternating_labels(align_seqs, lengths):
     """Converts the specified alignment data to labels.
 
@@ -190,21 +195,24 @@ def align_seqs_to_alternating_labels(align_seqs, lengths):
     Returns:
         feat_seqs (numpy.ndarray/list<numpy.ndarray>): The labels corresponding to the specified alignment data.
     """
-    if type(align_seqs[0][0]) not in [list, tuple, np.ndarray]: # Single alignment sequence
+    if type(align_seqs[0][0]) not in [list, tuple, np.ndarray]:  # Single alignment sequence
         label_seq = np.full((lengths,), 0.5, dtype=np.float32)
         current_class = 0.0
         for i, (start, duration, tag) in enumerate(align_seqs):
-            label_seq[start:start+duration] = current_class
+            label_seq[start:start + duration] = current_class
             if (DataLoader.TAGS_ALL[tag] == 'E'
-                or DataLoader.TAGS_ALL[tag] == 'S'
-                or (DataLoader.TAGS_ALL[tag] == None
-                    and align_seqs.shape[0] > i + 1
-                    and DataLoader.TAGS_ALL[align_seqs[i + 1][2]] != None)): # Assumes that all non-phone tags can be treated as the same token
+                    or DataLoader.TAGS_ALL[tag] == 'S'
+                    or (DataLoader.TAGS_ALL[tag] == None
+                        # Assumes that all non-phone tags can be treated as the same token
+                        and align_seqs.shape[0] > i + 1
+                        and DataLoader.TAGS_ALL[align_seqs[i + 1][2]] != None)):
                 current_class = 1.0 - current_class
         return label_seq
-    else:                               # List of alignment sequences
-        label_seqs = [align_seqs_to_alternating_labels(align_seq, length) for align_seq, length in zip(align_seqs, lengths)]
+    else:  # List of alignment sequences
+        label_seqs = [align_seqs_to_alternating_labels(align_seq, length) for align_seq, length in
+                      zip(align_seqs, lengths)]
         return label_seqs
+
 
 def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
     """Provides the input data for training, evaluation or prediction.
@@ -233,8 +241,8 @@ def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
             elif mode == PRED_MODE:
                 yield {'features': feat_seq, 'length': length}
 
-    dtypes = ({'features' : tf.float32, 'length' : tf.int64}, tf.float32)
-    shapes = ({'features' : tf.TensorShape([None, N_FEATURES]), 'length' : tf.TensorShape([])}, tf.TensorShape([None]))
+    dtypes = ({'features': tf.float32, 'length': tf.int32}, tf.float32)
+    shapes = ({'features': tf.TensorShape([None, N_FEATURES]), 'length': tf.TensorShape([])}, tf.TensorShape([None]))
 
     if mode == TRAIN_MODE:
         ids = shuffle(ids, random_state=random_state)
