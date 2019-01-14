@@ -23,7 +23,7 @@ from matplotlib import pyplot as plt
 from kaldi_io import readArk
 import json
 
-from data_handler import DataLoader, align_seqs_to_alternating_labels, trn_input_fn, evl_input_fn
+from data_handler import DataLoader, align_seqs_to_alternating_labels, input_fn, TRAIN_MODE, EVAL_MODE, PRED_MODE
 from model import model_fn
 from util import progress
 
@@ -184,11 +184,11 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
             model_dir=model_dir+'/fold_%03d'%(i,))
         batch_size = len(trn_ids) if maximize_batch_size else batch_size
         # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
-        eval_result = estimator.evaluate(input_fn=lambda:evl_input_fn(loader, evl_ids)) # Evaluation
+        eval_result = estimator.evaluate(input_fn=lambda:input_fn(loader, evl_ids, mode=EVAL_MODE)) # Evaluation
         for epoch in range(n_epochs):
-            estimator.train(input_fn=lambda:trn_input_fn(loader, trn_ids, batch_size, random_state), steps=None) # Training
-            eval_result = estimator.evaluate(input_fn=lambda:evl_input_fn(loader, evl_ids)) # Evaluation
-        eval_result = estimator.evaluate(input_fn=lambda:evl_input_fn(loader, val_ids)) # Validation TODO Is logged as evalutation
+            estimator.train(input_fn=lambda:input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE), steps=None) # Training
+            eval_result = estimator.evaluate(input_fn=lambda:input_fn(loader, evl_ids, mode=EVAL_MODE)) # Evaluation
+        eval_result = estimator.evaluate(input_fn=lambda:input_fn(loader, val_ids, mode=EVAL_MODE)) # Validation TODO Is logged as evalutation
         loss += eval_result['loss']
     loss /= n_splits
     progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
