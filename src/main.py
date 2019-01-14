@@ -4,7 +4,7 @@
 # Filename: main.py
 # Author: Julian Betz
 # Created: 2018-12-20
-# Version: 2019-01-12
+# Version: 2019-01-13
 #
 # Description:
 #     Entry point to the training/testing procedures.
@@ -16,17 +16,19 @@ from time import time
 import datetime
 from itertools import count
 import numpy as np
+from numpy.random import RandomState
 import tensorflow as tf
 from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
 from matplotlib import pyplot as plt
 from kaldi_io import readArk
 import json
 
-from data_handler import DataLoader, align_seqs_to_alternating_labels, train_input_fn, eval_input_fn
+from data_handler import DataLoader, align_seqs_to_alternating_labels, input_fn, TRAIN_MODE, EVAL_MODE, PRED_MODE
 from model import model_fn
 from util import progress
 
 SEED = 3735758343
+BATCH_SEED = 2068916927
 # Sample input data to analyze its structure, making sure that the DateLoader is only instantiated once
 N_FEATURES = [loader.load(loader.ids[0])[0].shape[1] for loader in [DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=0, seed=SEED)]][0]
 FEATURE_COLS = [tf.feature_column.numeric_column(key='features', shape=N_FEATURES)]
@@ -42,10 +44,10 @@ HYPERPARAMS = dict(learning_rate=hp.loguniform('learning_rate', -7, -3)) # TODO 
 @click.option('--n_splits', default=5, help='The number k of splits for cross-validation.', show_default=True)
 @click.option('--trn_size', default=0.75, help='The proportion of training data per fold in cross-validation. The remaining data of this fold is provided as evaluation data.', show_default=True)
 @click.option('--batch_size', '-b', default=None, type=int, help='The batch size for training. If not specified, the full training set is used.')
-@click.option('--n_steps', '-s', default=1, help='The number of steps for training.', show_default=True)
+@click.option('--n_epochs', '-e', default=1, help='The number of passes over the whole training set.', show_default=True)
 @click.option('--max_hyperparam_sets', default=100, help='The maximum number of hyperparameter sets to try during hyperparameter optimization.', show_default=True)
 # @click.option('--gpu/--cpu', '-g/-c', default=False, help='Whether to use a GPU.', show_default=True)
-def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_splits, trn_size, batch_size, n_steps, max_hyperparam_sets):
+def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_splits, trn_size, batch_size, n_epochs, max_hyperparam_sets):
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
     print('Tensorflow debugging output is suppressed')
     # Parse the test set size
@@ -88,7 +90,7 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
                 json.dump(hyperparams, hyperparams_file)
             loss = cross_validate(
                 trial_dir, loader,
-                n_samples, n_splits, trn_size, batch_size, n_steps,
+                n_samples, n_splits, trn_size, batch_size, n_epochs,
                 **hyperparams)
             report = {'loss' : loss, 'status' : STATUS_OK}
             with open(trial_dir + '/report.json', 'w') as report_file:
@@ -102,7 +104,7 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
         with open(model_dir + '/hyperparams_best.json', 'w') as hyperparams_best_file:
             json.dump(hyperparams_best, hyperparams_best_file)
     # elif operation == 'train':
-    #     train(estimator, loader, n_steps)
+    #     train(estimator, loader, n_epochs)
     # elif operation == 'evaluate':
     #     evaluate(estimator, loader)
     # elif operation == 'predict':
@@ -166,9 +168,10 @@ def convert(alignments, spectrograms):
         progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 # TODO Add relevant model parameters for cross-validation
-def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_steps, learning_rate): # TODO learning_rate is used only for debugging purposes. Use hyperparams that are actually needed instead.
+def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, learning_rate): # TODO learning_rate is used only for debugging purposes. Use hyperparams that are actually needed instead.
     maximize_batch_size = batch_size is None
     loss = 0.0
+    random_state = RandomState(BATCH_SEED)
     for i, (trn_ids, evl_ids, val_ids) in enumerate(loader.kfolds_ids(n_samples=n_samples, n_splits=n_splits, trn_size=trn_size)):
         progress.print_bar(i, n_splits, 20, 'Cross-validation: ┃', '┃')
         estimator = tf.estimator.Estimator(
@@ -181,34 +184,17 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
             model_dir=model_dir+'/fold_%03d'%(i,))
         batch_size = len(trn_ids) if maximize_batch_size else batch_size
         # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
-        # Evaluation
-        feat_seqs, align_seqs, _ = loader.load(evl_ids)
-        label_seqs = align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs])
-        feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
-        label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
-        eval_result = estimator.evaluate(input_fn=lambda:eval_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0]))
-        for batch_start in range(0, len(trn_ids), batch_size):
-            # Training
-            feat_seqs, _, _ = loader.load(trn_ids[batch_start:batch_start+batch_size])
-            feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
-            label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
-            estimator.train(input_fn=lambda:train_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0]), steps=n_steps)
-            # Evaluation
-            feat_seqs, _, _ = loader.load(evl_ids)
-            feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
-            label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
-            eval_result = estimator.evaluate(input_fn=lambda:eval_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0]))
-        # Validation
-        feat_seqs, _, _ = loader.load(val_ids)
-        feat_seqs = np.concatenate(feat_seqs, axis=0) # TODO Only for debugging purposes
-        label_seqs = np.argmax(feat_seqs, axis=1)     # TODO Only for debugging purposes
-        eval_result = estimator.evaluate(input_fn=lambda:eval_input_fn(feat_seqs, label_seqs, feat_seqs.shape[0])) # TODO Is logged as evalutation
+        eval_result = estimator.evaluate(input_fn=lambda:input_fn(loader, evl_ids, mode=EVAL_MODE)) # Evaluation
+        for epoch in range(n_epochs):
+            estimator.train(input_fn=lambda:input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE), steps=None) # Training
+            eval_result = estimator.evaluate(input_fn=lambda:input_fn(loader, evl_ids, mode=EVAL_MODE)) # Evaluation
+        eval_result = estimator.evaluate(input_fn=lambda:input_fn(loader, val_ids, mode=EVAL_MODE)) # Validation TODO Is logged as evalutation
         loss += eval_result['loss']
     loss /= n_splits
     progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
     return loss
 
-def train(estimator, loader, n_steps):    # TODO
+def train(estimator, loader, n_epochs):    # TODO
     raise NotImplementedError
         
 def evaluate(estimator, loader):        # TODO
@@ -227,7 +213,7 @@ if __name__ == '__main__':
     main()
 
     # plt.switch_backend('QT4Agg')
-    # loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=20, seed=1000)
+    # loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=20, seed=SEED)
     # print('Test set IDs: %s' % (loader.test_set_ids(),))
     # feat_seqs, align_seqs, phone_seqs = loader.load(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
     # print(align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs]))
@@ -235,7 +221,7 @@ if __name__ == '__main__':
     # loader.plot('spk0000000_EvaZeisel_2001-0002861-0003242-1')
     # for i, ((trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs),
     #         (evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs),
-    #         (val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs)) in enumerate(loader.kfolds(n_samples=10, n_splits=5, trn_size=0.625)):
+    #         (val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs)) in enumerate(loader.kfolds(n_samples=50, n_splits=5, trn_size=0.75)):
     #     print('Fold %d' % (i,))
     #     print(trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs, sep='\n')
     #     print(evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs, sep='\n')

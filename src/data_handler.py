@@ -3,7 +3,7 @@
 # Filename: data_handler.py
 # Author: Julian Betz
 # Created: 2018-12-23
-# Version: 2019-01-12
+# Version: 2019-01-13
 # 
 # Description: A class for converting and loading the dataset.
 
@@ -11,6 +11,7 @@ import sys
 import os
 import numpy as np
 from numpy.random import RandomState
+import tensorflow as tf
 from tensorflow.data import Dataset
 from sklearn.model_selection import KFold, train_test_split
 from sklearn.utils import shuffle
@@ -18,10 +19,15 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 import json
 
+N_FEATURES = 40                         # TODO Make non-hardcoded
+TRAIN_MODE = 0
+EVAL_MODE = 1
+PRED_MODE = 2
+
 class DataLoader:
     TAGS_ALL = [None, 'B', 'I', 'E', 'S']
     TAG_COLORS = [(0, 0, 0, 0), (0, 1, 0, 0.2), (0, 0, 1, 0.2), (1, 0, 0, 0.2), (1, 1, 0, 0.2)]
-    
+
     def __init__(self, data_dir, tst_size, seed=None):
         """A data management utility.
         
@@ -200,14 +206,45 @@ def align_seqs_to_alternating_labels(align_seqs, lengths):
         label_seqs = [align_seqs_to_alternating_labels(align_seq, length) for align_seq, length in zip(align_seqs, lengths)]
         return label_seqs
 
-def train_input_fn(features, labels, batch_size): # TODO Remove batch_size
-    dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
-    dataset = dataset.shuffle(1000).repeat().batch(batch_size) # TODO
-    return dataset.make_one_shot_iterator().get_next()         # TODO ???
+def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
+    """Provides the input data for training, evaluation or prediction.
 
-def eval_input_fn(features, labels, batch_size): # TODO Remove batch_size
-    dataset = Dataset.from_tensor_slices(({'features' : features}, labels))
-    dataset = dataset.batch(batch_size)
-    return dataset                      # TODO One shot-iterator necessary?
-    
+    Data is returned in the format used by tf.estimator.Estimator.
+
+    Args:
+        loader: The DataLoader instance to handle the loading of datapoints.
+        ids (list<str>): The IDs of the datapoints to that will be needed.
+        batch_size (int): The number of samples that comprise a batch. None if not used (in pred and eval mode)
+        random_state (numpy.random.RandomState): Random state instance to shuffle the dataset prior to batching. Random states are used to enable different permutations of the training set for different epochs while ensuring that data is not prefetched.
+        mode (int) The mode of the estimator to load the correct data. Defined as TRAIN_MODE = 0, EVAL_MODE = 1, PRED_MODE = 2
+    Returns:
+        next_batch: A nested structure of tensors that iterate over the dataset.
+            Every iteration contains a batch of data.
+    """
+
+    def load():
+        for i in ids:
+            feat_seq, align_seq, _ = loader.load(i)
+            length = feat_seq.shape[0]
+            label_seq = align_seqs_to_alternating_labels(align_seq, length)
+            # print('<Loaded %s>' % (i,))
+            if mode == TRAIN_MODE or mode == EVAL_MODE:
+                yield {'features': feat_seq, 'length': length}, label_seq
+            elif mode == PRED_MODE:
+                yield {'features': feat_seq, 'length': length}
+
+    dtypes = ({'features' : tf.float32, 'length' : tf.int64}, tf.float32)
+    shapes = ({'features' : tf.TensorShape([None, N_FEATURES]), 'length' : tf.TensorShape([])}, tf.TensorShape([None]))
+
+    if mode == TRAIN_MODE:
+        ids = shuffle(ids, random_state=random_state)
+    elif mode == EVAL_MODE or mode == PRED_MODE:
+        batch_size = len(ids)
+    elif mode == PRED_MODE:
+        shapes = {'features': tf.TensorShape([None, N_FEATURES]), 'length': tf.TensorShape([])}
+
+    dataset = Dataset.from_generator(load, dtypes, shapes)
+    dataset = dataset.padded_batch(batch_size, shapes)
+    return dataset.make_one_shot_iterator().get_next()
+
 # data_handler.py ends here
