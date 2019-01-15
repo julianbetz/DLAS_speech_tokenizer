@@ -207,15 +207,12 @@ def convert(alignments, spectrograms):
         progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 
-def build_estimator(model_dir, fold_id, learning_rate, lstm_size, batch_size):
+def build_estimator(model_dir, fold_id, learning_rate, lstm_size):
     # Params # TODO click option for dropout or is this done by hyperopt?
     params = {
         'dropout': 0.5,
-        'epochs': 25,
-        'buffer': 15000,
         'lstm_size': lstm_size,
-        'learning_rate': learning_rate,
-        'batch_size': batch_size
+        'learning_rate': learning_rate
     }
 
     estimator = tf.estimator.Estimator(
@@ -237,7 +234,7 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
             loader.kfolds_ids(n_samples=n_samples, n_splits=n_splits, trn_size=trn_size)):
         progress.print_bar(i, n_splits, 20, 'Cross-validation: ┃', '┃')
 
-        estimator = build_estimator(model_dir, i, learning_rate, lstm_size, batch_size)
+        estimator = build_estimator(model_dir, i, learning_rate, lstm_size)
 
         # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # Evaluation
