@@ -27,9 +27,6 @@ def model_fn(features, labels, mode, params):
     # transpose from batch-major to time-major -> prerequisite for LSTMBlockFusedCell
     t = tf.transpose(feature_vectors, perm=[1, 0, 2])
 
-    # print("feature_vectors.shape: %s" % feature_vectors.shape)
-    # print("seq_lens.shape: %s" % seq_lens.shape)
-    # print("labels.shape: %s" % labels.shape)
 
     # Bi-LSTM
     lstm_size = params['lstm_size']
@@ -46,7 +43,7 @@ def model_fn(features, labels, mode, params):
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
     output = tf.layers.dropout(output, rate=dropout, training=is_training)  # dropout layer
 
-    # TODO think of CRF - does it make sense for binary classification?!
+    # TODO think of CRF ?!
     # output projection layer
     # 1 output neurons since we have binary classification. No sigmoid activation since we do this in loss function..
     logits = tf.layers.dense(output, 1, activation=None)
@@ -55,6 +52,9 @@ def model_fn(features, labels, mode, params):
     preds = tf.sigmoid(logits)
     treshed_preds = tf.round(preds)
 
+    # print("feature_vectors.shape: %s" % feature_vectors.shape)
+    # print("seq_lens.shape: %s" % seq_lens.shape)
+    # print("labels.shape: %s" % labels.shape)
     # print("output.shape: %s" % output.shape)
     # print("logits.shape: %s" % logits.shape)
     # print("preds.shape: %s" % preds.shape)
@@ -62,16 +62,22 @@ def model_fn(features, labels, mode, params):
     if mode == tf.estimator.ModeKeys.PREDICT:
         # Predictions
         predictions = {
-            'preds': treshed_preds,
-            'class_ids': tf.cast(treshed_preds, tf.bool),
+            'predictions': treshed_preds,
             'probabilities': preds
         }
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
 
-    # Loss function is binary (sigmoid) cross entropy
-    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]))
-
     seq_len_mask = tf.sequence_mask(seq_lens)  # to mask out the padded values
+
+    # TODO find good loss function!
+    # Loss function is binary (sigmoid) cross entropy
+    # loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]))
+    # loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]))
+    loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]) * tf.cast(seq_len_mask, tf.float32))
+    loss = loss / tf.reduce_sum(tf.cast(seq_lens, tf.float32))
+    # loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(y_true=labels, y_pred=logits[:, :, 0]))
+    # loss = tf.contrib.seq2seq.sequence_loss(logits=logits, targets=labels, weights=seq_len_mask, softmax_loss_function=tf.nn.sigmoid_cross_entropy_with_logits)
+
     metrics = {
         'acc': tf.metrics.accuracy(labels, treshed_preds[:, :, 0], seq_len_mask),
         'precision': tf.metrics.precision(labels, treshed_preds[:, :, 0], weights=seq_len_mask),

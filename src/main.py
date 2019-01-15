@@ -40,11 +40,12 @@ FEATURE_COLS = [tf.feature_column.numeric_column(key='features', shape=N_FEATURE
 HYPERPARAMS = dict(learning_rate=hp.loguniform('learning_rate', -7, -3))  # TODO Add hyperparameters
 
 # Setup logging
-Path('results').mkdir(exist_ok=True)
+log_dir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + './../logs')
+Path(log_dir).mkdir(exist_ok=True)
 tf.logging.set_verbosity(logging.INFO)
-# -> change verbosity to info and log everything to a file (i.e. results/main.log)
+# -> change verbosity to info and log everything to a file (i.e. ../results/main.log)
 handlers = [
-    logging.FileHandler('results/main.log'),
+    logging.FileHandler(log_dir + '/main.log'),
     logging.StreamHandler(sys.stdout)
 ]
 logging.getLogger('tensorflow').handlers = handlers
@@ -74,7 +75,7 @@ logging.getLogger('tensorflow').handlers = handlers
 @click.option('--max_hyperparam_sets', default=100,
               help='The maximum number of hyperparameter sets to try during hyperparameter optimization.',
               show_default=True)
-@click.option('--lstm_size', default=100, help='The size of the Bi-LSTM Cells')
+@click.option('--lstm_size', default=100, help='The size of the Bi-LSTM Cells') #TODO move to hyperopt
 def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_splits, trn_size, batch_size, n_epochs,
          max_hyperparam_sets, lstm_size):
     # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
@@ -135,8 +136,10 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
             return report
 
         trials = Trials()
-        hyperparams_best = fmin(fn=objective, space=HYPERPARAMS,
-                                algo=tpe.suggest, max_evals=max_hyperparam_sets,
+        hyperparams_best = fmin(fn=objective,
+                                space=HYPERPARAMS,
+                                algo=tpe.suggest,
+                                max_evals=max_hyperparam_sets,
                                 trials=trials)
         print('Best hyperparameters: %s' % (hyperparams_best,))
         with open(model_dir + '/hyperparams_best.json', 'w') as hyperparams_best_file:
@@ -207,7 +210,7 @@ def convert(alignments, spectrograms):
         progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 
-def build_estimator(model_dir, fold_id, learning_rate, lstm_size):
+def build_estimator(model_dir, fold_id, lstm_size, learning_rate):
     # Params # TODO click option for dropout or is this done by hyperopt?
     params = {
         'dropout': 0.5,
@@ -230,24 +233,22 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
     maximize_batch_size = batch_size is None
     loss = 0.0
     random_state = RandomState(BATCH_SEED)
-    for i, (trn_ids, evl_ids, val_ids) in enumerate(
-            loader.kfolds_ids(n_samples=n_samples, n_splits=n_splits, trn_size=trn_size)):
+    for i, (trn_ids, evl_ids, val_ids) in enumerate(loader.kfolds_ids(n_samples=n_samples, n_splits=n_splits, trn_size=trn_size)):
         progress.print_bar(i, n_splits, 20, 'Cross-validation: ┃', '┃')
 
-        estimator = build_estimator(model_dir, i, learning_rate, lstm_size)
+        estimator = build_estimator(model_dir, i, lstm_size, learning_rate)
 
         # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
-        eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # Evaluation
+        eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # for tensorboard correct display ..
         batch_size = len(trn_ids) if maximize_batch_size else batch_size
         for epoch in range(n_epochs):
-            estimator.train(input_fn=lambda: input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE),
-                            steps=None)  # Training
-            eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # Evaluation
+            estimator.train(input_fn=lambda: input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE), steps=None)  # Training
+            eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # for possible early stopping
 
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, val_ids, mode=EVAL_MODE))  # Validation TODO Is logged as evalutation
         loss += eval_result['loss']
-        loss /= n_splits
-        progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
+    loss /= n_splits
+    progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
     return loss
 
 

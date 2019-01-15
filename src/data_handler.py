@@ -244,12 +244,14 @@ def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
     dtypes = ({'features': tf.float32, 'length': tf.int32}, tf.float32)
     shapes = ({'features': tf.TensorShape([None, N_FEATURES]), 'length': tf.TensorShape([])}, tf.TensorShape([None]))
 
-    if mode == TRAIN_MODE:
+    if mode == TRAIN_MODE and random_state is not None:
         ids = shuffle(ids, random_state=random_state)
-    elif mode == EVAL_MODE or mode == PRED_MODE:
+    elif mode == EVAL_MODE or mode == PRED_MODE or batch_size is None:
         batch_size = len(ids)
-    elif mode == PRED_MODE:
-        shapes = {'features': tf.TensorShape([None, N_FEATURES]), 'length': tf.TensorShape([])}
+
+    if mode == PRED_MODE:
+        dtypes = dtypes[0]
+        shapes = shapes[0]
 
     dataset = Dataset.from_generator(load, dtypes, shapes)
     dataset = dataset.padded_batch(batch_size, shapes)
