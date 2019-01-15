@@ -177,8 +177,7 @@ def convert(alignments, spectrograms):
                 # Convert starts and durations from seconds to numbers of frames without risking floating point errors
                 assert len(re.sub('.*\.', '', line[2])) == 3
                 assert len(re.sub('.*\.', '', line[3])) == 3
-                id, start, duration, tag = line[0], int(re.sub('\.', '', line[2][:-1])), int(
-                    re.sub('\.', '', line[3][:-1])), int(line[4])
+                id, start, duration, tag = line[0], int(re.sub('\.', '', line[2][:-1])), int(re.sub('\.', '', line[3][:-1])), int(line[4])
                 if id not in tag_dict:
                     tag_dict[id] = []
                 tag_dict[id].append((start, duration, tag))
@@ -190,11 +189,10 @@ def convert(alignments, spectrograms):
             with open(utterances_output_dir + '/%s.json' % (key,), 'w') as file_handle:
                 # file_dict = {'id' : key, 'alignments' : value}
                 json.dump(value, file_handle)
-            progress.print_bar(i + 1, n_ids, 20, 'Storing alignment data... ┃', '┃ DONE %.4fs' % (time() - start_time))
-            print('Storing sequence IDs...', end='', flush=True)
-            with open(output_dir + '/utterances.json', 'w') as file_handle:
-                json.dump(sorted(tag_dict), file_handle,
-                          indent=4)  # Asserts the same IDs in both alignments and spectrograms
+        progress.print_bar(i + 1, n_ids, 20, 'Storing alignment data... ┃', '┃ DONE %.4fs' % (time() - start_time))
+        print('Storing sequence IDs...', end='', flush=True)
+        with open(output_dir + '/utterances.json', 'w') as file_handle:
+            json.dump(sorted(tag_dict), file_handle, indent=4) # Asserts the same IDs in both alignments and spectrograms
         print(' DONE')
     if spectrograms:
         # Convert spectrograms
@@ -206,8 +204,7 @@ def convert(alignments, spectrograms):
         for i, (feat, id) in enumerate(zip(feats, ids)):
             progress.print_bar(i, n_ids, 20, 'Storing spectrogram data... ┃', '┃')
             np.save(utterances_output_dir + '/%s.npy' % (id,), feat)
-            progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃',
-                               '┃ DONE %.4fs' % (time() - start_time))
+        progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 
 def build_estimator(model_dir, fold_id, learning_rate, lstm_size, batch_size):
