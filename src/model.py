@@ -63,6 +63,8 @@ def model_fn(features, labels, mode, params):
         # Predictions
         predictions = {
             'preds': treshed_preds,
+            'class_ids': tf.cast(treshed_preds, tf.bool),
+            'probabilities': preds
         }
         return tf.estimator.EstimatorSpec(mode, predictions=predictions)
 
