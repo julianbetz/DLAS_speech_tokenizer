@@ -238,14 +238,13 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
 
         # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # Evaluation
+        batch_size = len(trn_ids) if maximize_batch_size else batch_size
         for epoch in range(n_epochs):
-            batch_size = len(trn_ids) if maximize_batch_size else batch_size
             estimator.train(input_fn=lambda: input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE),
                             steps=None)  # Training
             eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # Evaluation
 
-        eval_result = estimator.evaluate(
-            input_fn=lambda: input_fn(loader, val_ids, mode=EVAL_MODE))  # Validation TODO Is logged as evalutation
+        eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, val_ids, mode=EVAL_MODE))  # Validation TODO Is logged as evalutation
         loss += eval_result['loss']
         loss /= n_splits
         progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
