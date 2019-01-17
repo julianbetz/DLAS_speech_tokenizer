@@ -214,6 +214,35 @@ def align_seqs_to_alternating_labels(align_seqs, lengths):
         return label_seqs
 
 
+def align_seqs_to_breaking_labels(align_seqs, lengths):
+    """Converts the specified alignment data to labels.
+
+    Labels encode word boundaries directly: Class 1 represents end-of-word tags.
+    A single align sequence by itself can be provided as a list of rank 2.
+
+    Args:
+        align_seqs (numpy.ndarray/list<numpy.ndarray>): The alignment data.
+        lengths (int/list<int>): The total number of frames for the alignment sequences.
+    Returns:
+        feat_seqs (numpy.ndarray/list<numpy.ndarray>): The labels corresponding to the specified alignment data.
+    """
+    if type(align_seqs[0][0]) not in [list, tuple, np.ndarray]:  # Single alignment sequence
+        label_seq = np.full((lengths,), 0.0, dtype=np.float32)
+        for i, (start, duration, tag) in enumerate(align_seqs):
+            if (DataLoader.TAGS_ALL[tag] == 'E'
+                    or DataLoader.TAGS_ALL[tag] == 'S'
+                    or (DataLoader.TAGS_ALL[tag] == None
+                        # Assumes that all non-phone tags can be treated as the same token
+                        and align_seqs.shape[0] > i + 1
+                        and DataLoader.TAGS_ALL[align_seqs[i + 1][2]] != None)):
+                label_seq[start + duration - 1] = 1.0
+        return label_seq
+    else:  # List of alignment sequences
+        label_seqs = [align_seqs_to_breaking_labels(align_seq, length) for align_seq, length in
+                      zip(align_seqs, lengths)]
+        return label_seqs
+
+
 def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
     """Provides the input data for training, evaluation or prediction.
 
@@ -234,7 +263,7 @@ def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
         for i in ids:
             feat_seq, align_seq, _ = loader.load(i)
             length = feat_seq.shape[0]
-            label_seq = align_seqs_to_alternating_labels(align_seq, length)
+            label_seq = align_seqs_to_breaking_labels(align_seq, length)
             # print('<Loaded %s>' % (i,))
             if mode == TRAIN_MODE or mode == EVAL_MODE:
                 yield {'features': feat_seq, 'length': length}, label_seq

@@ -23,9 +23,10 @@ import numpy as np
 import tensorflow as tf
 from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
 from numpy.random import RandomState
+from matplotlib import pyplot as plt
 from pathlib2 import Path
 
-from data_handler import DataLoader, input_fn, TRAIN_MODE, EVAL_MODE
+from data_handler import DataLoader, input_fn, TRAIN_MODE, EVAL_MODE, PRED_MODE, align_seqs_to_breaking_labels
 from kaldi_io import readArk
 from model import model_fn
 from util import progress
@@ -56,7 +57,7 @@ logging.getLogger('tensorflow').handlers = handlers
               show_default=True)
 @click.option('--spectrograms/--no-spectrograms', '-s/', default=False, help='Whether to convert the spectrograms',
               show_default=True)
-@click.option('--operation', '-o', type=click.Choice(['hyperoptimize']),
+@click.option('--operation', '-o', type=click.Choice(['hyperoptimize', 'predict']),
               help='The operation to perform on the estimator')
 @click.option('--model_dir', '-d', default=None, type=str, help='Where to store model data.')
 @click.option('--tst_size', type=str,
@@ -148,8 +149,8 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
     #     train(estimator, loader, n_epochs)
     # elif operation == 'evaluate':
     #     evaluate(estimator, loader)
-    # elif operation == 'predict':
-    #     predict(estimator, loader)
+    elif operation == 'predict':
+        predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size) # TODO Add hyperparams
 
 
 def convert(alignments, spectrograms):
@@ -242,10 +243,12 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # for tensorboard correct display ..
         batch_size = len(trn_ids) if maximize_batch_size else batch_size
         for epoch in range(n_epochs):
+            print('Epoch: %d' % (epoch,))
             estimator.train(input_fn=lambda: input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE), steps=None)  # Training
             eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # for possible early stopping
 
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, val_ids, mode=EVAL_MODE))  # Validation TODO Is logged as evalutation
+        print('Accuracy: %.6f' % (eval_result['acc'],))
         loss += eval_result['loss']
     loss /= n_splits
     progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
@@ -262,12 +265,26 @@ def evaluate(estimator, loader):  # TODO
     # print(eval_result)
 
 
-def predict(estimator, loader):  # TODO
+# TODO
+def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size):  # TODO
     raise NotImplementedError
-    # predictions = estimator.predict(input_fn=eval_input_fn)
-    # for pred_dict in predictions:
-    #     class_id = pred_dict['class_ids'][0]
-    #     print('%.4f' % (pred_dict['probabilities'][class_id],), iris_data.SPECIES[class_id])
+    params = {
+        'dropout': 0.5,
+        'lstm_size': lstm_size,
+        'learning_rate': 0.1
+    }
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        params=params,
+        model_dir=model_dir
+    )
+    predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
+    for pred_dict in predictions:
+        class_id_seq = list(pred_dict['predictions'].reshape(-1))
+        feat_seq, align_seq, _ = loader.load(loader.ids[1])
+        label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
+        print(len(class_id_seq), len(label_seq))
+        print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
 
 
 if __name__ == '__main__':
@@ -277,9 +294,9 @@ if __name__ == '__main__':
     # loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=20, seed=SEED)
     # print('Test set IDs: %s' % (loader.test_set_ids(),))
     # feat_seqs, align_seqs, phone_seqs = loader.load(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
-    # print(align_seqs_to_alternating_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs]))
+    # print(align_seqs_to_breaking_labels(align_seqs, [feat_seq.shape[0] for feat_seq in feat_seqs]))
     # loader.plot(['spk0000000_EvaZeisel_2001-0002861-0003242-1', 'spk0001415_ArthurPottsDawson_2010G-0001676-0002585-1'])
-    # loader.plot('spk0000000_EvaZeisel_2001-0002861-0003242-1')
+    # loader.plot('spk0000000_EvaZeisel_2001-0025391-0026099-1')
     # for i, ((trn_ids, trn_feat_seqs, trn_align_seqs, trn_phone_seqs),
     #         (evl_ids, evl_feat_seqs, evl_align_seqs, evl_phone_seqs),
     #         (val_ids, val_feat_seqs, val_align_seqs, val_phone_seqs)) in enumerate(loader.kfolds(n_samples=50, n_splits=5, trn_size=0.75)):
