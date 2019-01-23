@@ -69,14 +69,12 @@ def model_fn(features, labels, mode, params):
 
     seq_len_mask = tf.sequence_mask(seq_lens)  # to mask out the padded values
 
-    # TODO find good loss function!
-    # Loss function is binary (sigmoid) cross entropy
-    # loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]))
-    # loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]))
-    loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits[:, :, 0]) * tf.cast(seq_len_mask, tf.float32))
+    weighted_cross_entropy = tf.nn.weighted_cross_entropy_with_logits(targets=labels,
+                                                                      logits=logits[:, :, 0],
+                                                                      pos_weight=tf.constant(27.244325949851728, tf.float32))
+    loss = tf.reduce_sum(weighted_cross_entropy * tf.cast(seq_len_mask, tf.float32))
     loss = loss / tf.reduce_sum(tf.cast(seq_lens, tf.float32))
-    # loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(y_true=labels, y_pred=logits[:, :, 0]))
-    # loss = tf.contrib.seq2seq.sequence_loss(logits=logits, targets=labels, weights=seq_len_mask, softmax_loss_function=tf.nn.sigmoid_cross_entropy_with_logits)
+
 
     metrics = {
         'acc': tf.metrics.accuracy(labels, treshed_preds[:, :, 0], seq_len_mask),
@@ -84,6 +82,7 @@ def model_fn(features, labels, mode, params):
         'recall': tf.metrics.recall(labels, treshed_preds[:, :, 0], weights=seq_len_mask),
         'f1': tf.contrib.metrics.f1_score(labels, treshed_preds[:, :, 0], seq_len_mask)
     }
+
     for metric_name, op in metrics.items():
         tf.summary.scalar(metric_name, op[1])
 
