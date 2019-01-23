@@ -267,7 +267,7 @@ def evaluate(estimator, loader):  # TODO
 
 # TODO
 def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size):  # TODO
-    raise NotImplementedError
+    # raise NotImplementedError
     params = {
         'dropout': 0.5,
         'lstm_size': lstm_size,
@@ -278,13 +278,16 @@ def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epoc
         params=params,
         model_dir=model_dir
     )
+
     predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
     for pred_dict in predictions:
         class_id_seq = list(pred_dict['predictions'].reshape(-1))
-        feat_seq, align_seq, _ = loader.load(loader.ids[1])
+        prob_seq = list(pred_dict['probabilities'].reshape(-1))
+        feat_seq, align_seq, _ = loader.load(loader.ids[0])
         label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
-        print(len(class_id_seq), len(label_seq))
+        print(len(class_id_seq),len(prob_seq), len(label_seq), len(feat_seq))
         print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
+        print('Probs:  %s' % (prob_seq,), 'Labels: %s' % (label_seq,), sep='\n')
 
 
 if __name__ == '__main__':
