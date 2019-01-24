@@ -37,16 +37,24 @@ def model_fn(features, labels, mode, params):
     lstm_cell_bw = tf.contrib.rnn.TimeReversedFusedRNN(lstm_cell_bw)  # time reversed rnn since it is the backward cell
     output_fw, _ = lstm_cell_fw(t, dtype=tf.float32, sequence_length=seq_lens)  # forward output
     output_bw, _ = lstm_cell_bw(t, dtype=tf.float32, sequence_length=seq_lens)  # backward output
-    output = tf.concat([output_fw, output_bw], axis=-1)  # concat the outputs
-    output = tf.transpose(output, perm=[1, 0, 2])  # transpose back to batch-major
+    bi_lstm_output = tf.concat([output_fw, output_bw], axis=-1)  # concat the outputs
+    bi_lstm_output = tf.transpose(bi_lstm_output, perm=[1, 0, 2])  # transpose back to batch-major
 
     is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-    output = tf.layers.dropout(output, rate=dropout, training=is_training)  # dropout layer
+    bi_lstm_output_dropout_layer = tf.layers.dropout(bi_lstm_output, rate=dropout, training=is_training)  # dropout layer
+
+    # adding a DNN on Top of the Bi-LSTM
+    num_dnn_layers = 5 # TODO hyperopt
+    num_hidden_units = [150, 100, 50, 25, 10] # TODO hyperopt
+    dnn_layers = [bi_lstm_output_dropout_layer]
+    for i in range(num_dnn_layers):
+        dnn_layers.append(tf.layers.dense(dnn_layers[-1], num_hidden_units[i], activation=tf.nn.relu))
+
 
     # TODO think of CRF ?!
     # output projection layer
     # 1 output neurons since we have binary classification. No sigmoid activation since we do this in loss function..
-    logits = tf.layers.dense(output, 1, activation=None)
+    logits = tf.layers.dense(dnn_layers[-1], 1, activation=None)
 
     # predictions are the thresholds of sigmoid of logits
     preds = tf.sigmoid(logits)
