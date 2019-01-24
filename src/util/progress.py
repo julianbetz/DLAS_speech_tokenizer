@@ -3,13 +3,14 @@
 # Filename: progress.py
 # Author: Julian Betz
 # Created: 2018-06-23
+# Version: 2019-01-24
 #
 # Description: Provides a progress bar.
 
 import math
 import sys
 
-def print_bar(part, whole, length, prefix='', suffix=''):
+def print_bar(part, whole, length, prefix='', suffix='', delimiter='\r', end='\n'):
     number = part / whole * length
     floor = math.floor(number)
     sys.stdout.write(prefix + '█' * floor)
@@ -31,6 +32,6 @@ def print_bar(part, whole, length, prefix='', suffix=''):
             sys.stdout.write('▊')
         else:
             sys.stdout.write('▉')
-    print(' ' * (length - floor - 1) + suffix, end='\r' if part < whole else '\n')
+    print(' ' * (length - floor - 1) + suffix, end=delimiter if part < whole else end)
 
 # progress.py ends here
