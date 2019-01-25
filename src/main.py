@@ -4,7 +4,7 @@
 # Filename: main.py
 # Author: Julian Betz and Florian Schneider
 # Created: 2018-12-20
-# Version: 2019-01-13
+# Version: 2019-01-24
 #
 # Description:
 #     Entry point to the training/testing procedures.
@@ -22,6 +22,7 @@ import click
 import numpy as np
 import tensorflow as tf
 from hyperopt import hp, fmin, tpe, STATUS_OK, Trials
+from hyperopt.pyll import scope
 from numpy.random import RandomState
 from matplotlib import pyplot as plt
 from pathlib2 import Path
@@ -38,19 +39,6 @@ N_FEATURES = [loader.load(loader.ids[0])[0].shape[1] for loader in [
     DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'), tst_size=0,
                seed=SEED)]][0]
 FEATURE_COLS = [tf.feature_column.numeric_column(key='features', shape=N_FEATURES)]
-HYPERPARAMS = dict(learning_rate=hp.loguniform('learning_rate', -7, -3))  # TODO Add hyperparameters
-
-# Setup logging
-log_dir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + './../logs')
-Path(log_dir).mkdir(exist_ok=True)
-tf.logging.set_verbosity(logging.INFO)
-# -> change verbosity to info and log everything to a file (i.e. ../results/main.log)
-handlers = [
-    logging.FileHandler(log_dir + '/main.log'),
-    logging.StreamHandler(sys.stdout)
-]
-logging.getLogger('tensorflow').handlers = handlers
-
 
 @click.command()
 @click.option('--alignments/--no-alignments', '-a/', default=False, help='Whether to convert alignment data',
@@ -76,11 +64,9 @@ logging.getLogger('tensorflow').handlers = handlers
 @click.option('--max_hyperparam_sets', default=100,
               help='The maximum number of hyperparameter sets to try during hyperparameter optimization.',
               show_default=True)
-@click.option('--lstm_size', default=100, help='The size of the Bi-LSTM Cells') #TODO move to hyperopt
+@click.option('--max_layers', default=3, help='The maximum number of dense layers in the network when performing hyperparameter optimization.', show_default=True)
 def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_splits, trn_size, batch_size, n_epochs,
-         max_hyperparam_sets, lstm_size):
-    # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
-    # print('Tensorflow debugging output is suppressed')
+         max_hyperparam_sets, max_layers):
     # Parse the test set size
     if tst_size == None:
         tst_size = 0.2
@@ -97,27 +83,57 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
                 tst_size = int(tst_size)
             except ValueError:
                 print(error_message)
+
     # Verify that the there was at least one operation requested
     if not (alignments or spectrograms or operation):
         print('No options given, try invoking the command with "--help" for help.')
+
     # Convert the data to a fastly loadable representation
     convert(alignments, spectrograms)
+
     # Create default model directory if there is none
     if model_dir is None:
         now = datetime.datetime.now()
         model_dir = os.path.dirname(os.path.abspath(__file__)) + ('/../models/%s_%s' % (now.date(), now.time()))
     model_dir = os.path.abspath(os.path.expanduser(model_dir))
-    print('Models will be saved to %s' % (model_dir,))
+    Path(model_dir).mkdir(exist_ok=True)
+    print('Output directory: %s' % (model_dir,))
+
+    # Setup logging
+    # Change verbosity to info and log everything to a file (i.e. ../<model_dir>/main.log)
+    tf.logging.set_verbosity(logging.INFO)
+    logging.getLogger('tensorflow').handlers = [
+        logging.FileHandler(model_dir + '/main.log'),
+        # logging.StreamHandler(sys.stdout)
+    ]
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
+    print('Tensorflow debugging output is suppressed')
+
     # Handle data loading
     loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'),
                         tst_size=tst_size, seed=SEED)
     if operation == 'hyperoptimize':  # Hyperparameter optimization
+        # Define hyperparameter search space
+        @scope.define
+        def to_int(number):
+            return int(number)
+        
+        hyperparam_space = dict(
+            lstm_size=scope.to_int(hp.qloguniform('lstm_size', 2.0, 5.0, 1)),
+            dense_sizes=hp.choice('n_layers', [
+                tuple(
+                    scope.to_int(hp.qloguniform('dense_size_%d_%d' % (i, j), 2.0, 5.0, 1))
+                    for j in range(i))
+                for i in range(max_layers + 1)]),
+            dropout=hp.uniform('dropout', 0.0, 1.0))
+
+        # Optimize design via cross-validation
         trial_index = iter(count())
 
         def objective(hyperparams):
             trial_id = next(trial_index)
-            print('Trial %d' % (trial_id,))
-            trial_dir = model_dir + ('/trial_%06d' % (trial_id,))
+            progress.print_bar(trial_id, max_hyperparam_sets, 20, 'Trial:            ┃', '┃', '\n')
+            trial_dir = model_dir + ('/trial_%d' % (trial_id,))
             if not os.path.exists(trial_dir):
                 os.makedirs(trial_dir)
             with open(trial_dir + '/hyperparams.json', 'w') as hyperparams_file:
@@ -129,7 +145,6 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
                                   trn_size,
                                   batch_size,
                                   n_epochs,
-                                  lstm_size,
                                   **hyperparams)
             report = {'loss': loss, 'status': STATUS_OK}
             with open(trial_dir + '/report.json', 'w') as report_file:
@@ -138,11 +153,16 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
 
         trials = Trials()
         hyperparams_best = fmin(fn=objective,
-                                space=HYPERPARAMS,
+                                space=hyperparam_space,
                                 algo=tpe.suggest,
                                 max_evals=max_hyperparam_sets,
                                 trials=trials)
-        print('Best hyperparameters: %s' % (hyperparams_best,))
+        progress.print_bar(next(trial_index), max_hyperparam_sets, 20, 'Trial:            ┃', '┃', '\n')
+
+        # Report results of hyperparameter optimization
+        print('Best hyperparameters:')
+        for param, value in sorted(hyperparams_best.items()):
+            print('    %s: %s' % (param, value))
         with open(model_dir + '/hyperparams_best.json', 'w') as hyperparams_best_file:
             json.dump(hyperparams_best, hyperparams_best_file)
     # elif operation == 'train':
@@ -211,47 +231,47 @@ def convert(alignments, spectrograms):
         progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 
-def build_estimator(model_dir, fold_id, lstm_size, learning_rate):
-    # Params # TODO click option for dropout or is this done by hyperopt?
-    params = {
-        'dropout': 0.5,
-        'lstm_size': lstm_size,
-        'learning_rate': learning_rate
-    }
-
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn,
-        params=params,
-        model_dir=model_dir + '/fold_%03d' % (fold_id,)
-    )
-
-    return estimator
-
-
-# TODO Add relevant model parameters for cross-validation
-# TODO learning_rate is used only for debugging purposes. Use hyperparams that are actually needed instead.
-def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size, learning_rate):
+def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size, dense_sizes, dropout):
     maximize_batch_size = batch_size is None
     loss = 0.0
     random_state = RandomState(BATCH_SEED)
     for i, (trn_ids, evl_ids, val_ids) in enumerate(loader.kfolds_ids(n_samples=n_samples, n_splits=n_splits, trn_size=trn_size)):
-        progress.print_bar(i, n_splits, 20, 'Cross-validation: ┃', '┃')
+        progress.print_bar(i, n_splits, 20, '    Fold:         ┃', '┃', '\n')
 
-        estimator = build_estimator(model_dir, i, lstm_size, learning_rate)
+        # Build estimator
+        estimator = tf.estimator.Estimator(
+            model_fn=model_fn,
+            params=dict(lstm_size=lstm_size,
+                        dense_sizes=dense_sizes,
+                        dropout=dropout),
+            model_dir=model_dir + '/fold_%d' % (i,)
+        )
 
-        # TODO Before initial evaluation, make sure that a zero-global-step checkpoint exists
+        # Initialize weights:
+        # Train on nothing to make sure that a zero-global-step checkpoint exists.
+        # Any evaluation prior to this may be incorrect due to a different random initialization.
+        estimator.train(input_fn=lambda: input_fn(loader, [], 1, random_state, mode=TRAIN_MODE), steps=None)
+
+        # Train/evaluate for multiple epochs
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # for tensorboard correct display ..
         batch_size = len(trn_ids) if maximize_batch_size else batch_size
         for epoch in range(n_epochs):
-            print('Epoch: %d' % (epoch,))
+            progress.print_bar(epoch, n_epochs, 20, '        Epoch:    ┃', '┃')
             estimator.train(input_fn=lambda: input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE), steps=None)  # Training
             eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids, mode=EVAL_MODE))  # for possible early stopping
+        progress.print_bar(epoch + 1, n_epochs, 20, '        Epoch:    ┃', '┃')
 
+        # Validate
         eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, val_ids, mode=EVAL_MODE))  # Validation TODO Is logged as evalutation
-        print('Accuracy: %.6f' % (eval_result['acc'],))
+        print('        Accuracy:  %.6f' % (eval_result['acc'],))
+        print('        Precision: %.6f' % (eval_result['precision'],))
+        print('        Recall:    %.6f' % (eval_result['recall'],))
+        print('        F1:        %.6f' % (eval_result['f1'],))
         loss += eval_result['loss']
+
+    # Report hyperparameter set performance
     loss /= n_splits
-    progress.print_bar(i + 1, n_splits, 20, 'Cross-validation: ┃', '┃ Loss: %f' % (loss,))
+    progress.print_bar(i + 1, n_splits, 20, '    Fold:         ┃', '┃\n    Loss:          %f' % (loss,), '\n')
     return loss
 
 
@@ -266,7 +286,7 @@ def evaluate(estimator, loader):  # TODO
 
 
 # TODO
-def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size):  # TODO
+def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size):
     # raise NotImplementedError
     params = {
         'dropout': 0.5,
