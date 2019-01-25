@@ -123,8 +123,8 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
             dense_sizes=hp.choice('n_layers', [
                 tuple(
                     scope.to_int(hp.qloguniform('dense_size_%d_%d' % (i, j), 2.0, 5.0, 1))
-                    for j in range(i + 1))
-                for i in range(max_layers)]),
+                    for j in range(i))
+                for i in range(max_layers + 1)]),
             dropout=hp.uniform('dropout', 0.0, 1.0))
 
         # Optimize design via cross-validation
