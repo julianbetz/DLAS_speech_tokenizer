@@ -65,8 +65,9 @@ FEATURE_COLS = [tf.feature_column.numeric_column(key='features', shape=N_FEATURE
               help='The maximum number of hyperparameter sets to try during hyperparameter optimization.',
               show_default=True)
 @click.option('--max_layers', default=3, help='The maximum number of dense layers in the network when performing hyperparameter optimization.', show_default=True)
+@click.option('--num_gpus', default=1, help='The maximum number of GPUs used. Make sure that the GPUs actually are available!', show_default=True)
 def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_splits, trn_size, batch_size, n_epochs,
-         max_hyperparam_sets, max_layers):
+         max_hyperparam_sets, max_layers, num_gpus):
     # Parse the test set size
     if tst_size == None:
         tst_size = 0.2
@@ -145,6 +146,7 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
                                   trn_size,
                                   batch_size,
                                   n_epochs,
+                                  num_gpus,
                                   **hyperparams)
             report = {'loss': loss, 'status': STATUS_OK}
             with open(trial_dir + '/report.json', 'w') as report_file:
@@ -231,7 +233,7 @@ def convert(alignments, spectrograms):
         progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 
-def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size, dense_sizes, dropout):
+def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, num_gpus, lstm_size, dense_sizes, dropout):
     maximize_batch_size = batch_size is None
     loss = 0.0
     random_state = RandomState(BATCH_SEED)
@@ -243,7 +245,8 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
             model_fn=model_fn,
             params=dict(lstm_size=lstm_size,
                         dense_sizes=dense_sizes,
-                        dropout=dropout),
+                        dropout=dropout,
+                        num_gpus=num_gpus),
             model_dir=model_dir + '/fold_%d' % (i,)
         )
 
