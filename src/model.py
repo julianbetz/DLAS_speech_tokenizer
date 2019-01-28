@@ -78,7 +78,7 @@ def model_fn(features, labels, mode, params):
             weighted_cross_entropy = tf.nn.weighted_cross_entropy_with_logits(
                 targets=labels,
                 logits=logits[:, :, 0],
-                pos_weight=tf.constant(27.244325949851728, tf.float32))
+                pos_weight=tf.constant(27.244325949851728 / 2, tf.float32))
             loss = tf.reduce_sum(weighted_cross_entropy * tf.cast(seq_len_mask, tf.float32))
             loss = loss / tf.reduce_sum(tf.cast(seq_lens, tf.float32))
 
