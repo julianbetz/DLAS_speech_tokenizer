@@ -97,7 +97,7 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
         now = datetime.datetime.now()
         model_dir = os.path.dirname(os.path.abspath(__file__)) + ('/../models/%s_%s' % (now.date(), now.time()))
     model_dir = os.path.abspath(os.path.expanduser(model_dir))
-    Path(model_dir).mkdir(exist_ok=True)
+    os.makedirs(model_dir)
     print('Output directory: %s' % (model_dir,))
 
     # Setup logging
