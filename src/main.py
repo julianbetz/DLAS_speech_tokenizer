@@ -120,13 +120,13 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
             return int(number)
         
         hyperparam_space = dict(
-            lstm_size=scope.to_int(hp.qloguniform('lstm_size', 2.0, 5.0, 1)),
+            lstm_size=scope.to_int(hp.qloguniform('lstm_size', 3.92, 5.012, 1)),  # between 50 and 150
             dense_sizes=hp.choice('n_layers', [
                 tuple(
-                    scope.to_int(hp.qloguniform('dense_size_%d_%d' % (i, j), 2.0, 5.0, 1))
+                    scope.to_int(hp.qloguniform('dense_size_%d_%d' % (i, j), 0.7, 4.61, 1))  # between 2 and 100
                     for j in range(i))
                 for i in range(max_layers + 1)]),
-            dropout=hp.uniform('dropout', 0.0, 1.0))
+            dropout=hp.uniform('dropout', 0.33, 0.66))  # between 1/3 and 2/3
 
         # Optimize design via cross-validation
         trial_index = iter(count())
