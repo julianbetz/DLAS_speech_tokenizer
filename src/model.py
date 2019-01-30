@@ -32,15 +32,14 @@ def model_fn(features, labels, mode, params):
             # Bi-LSTM
             lstm_size = params['lstm_size']
             # transpose from batch-major to time-major -> prerequisite for LSTMBlockFusedCell
-            t = tf.transpose(feature_vectors, perm=[1, 0, 2])
-            # LSTMBlockFusedCell is just a very efficient implementation of an LSTM Cell with correct dropout
-            # i.e. an implementation of https://arxiv.org/abs/1409.2329
-            lstm_cell_fw = tf.contrib.rnn.LSTMBlockFusedCell(lstm_size)  # forward cell
-            lstm_cell_bw = tf.contrib.rnn.LSTMBlockFusedCell(lstm_size)  # backward cell
-            lstm_cell_bw = tf.contrib.rnn.TimeReversedFusedRNN(lstm_cell_bw)  # time reversed rnn since it is the backward cell
-            output_fw, _ = lstm_cell_fw(t, dtype=tf.float32, sequence_length=seq_lens)  # forward output
-            output_bw, _ = lstm_cell_bw(t, dtype=tf.float32, sequence_length=seq_lens)  # backward output
-            layer = tf.concat([output_fw, output_bw], axis=-1)  # concat the outputs
+            input_tensor = tf.transpose(feature_vectors, perm=[1, 0, 2])
+
+            lstm_cell_fw = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(lstm_size)  # forward cell
+            lstm_cell_bw = tf.contrib.cudnn_rnn.CudnnCompatibleLSTMCell(lstm_size)  # backward cell
+
+            outputs, output_states = tf.nn.bidirectional_dynamic_rnn(lstm_cell_fw, lstm_cell_bw, input_tensor, sequence_length=seq_lens, dtype=tf.float32, time_major=True)
+
+            layer = tf.concat([outputs[0], outputs[1]], axis=-1)  # concat the outputs
             layer = tf.transpose(layer, perm=[1, 0, 2])  # transpose back to batch-major
             layer = tf.layers.dropout(layer, rate=dropout, training=is_training)  # dropout layer
 
