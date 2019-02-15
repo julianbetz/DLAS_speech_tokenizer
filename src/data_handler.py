@@ -182,6 +182,16 @@ class DataLoader:
                    (evl_ids, *self.load(evl_ids)),
                    (val_ids, *self.load(val_ids)))
 
+    def train_test(self, n_samples=None, trn_size=0.8):
+        r = RandomState(self.seed)
+        n_samples = min(float('inf') if n_samples is None else n_samples, len(self.ids) - self.tst_size)
+        ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size + n_samples)[self.tst_size:]
+
+        trn_ids, evl_ids = train_test_split(ids, test_size=None, train_size=trn_size, shuffle=True,
+                                                    random_state=r)
+
+        return trn_ids, evl_ids
+
 
 def align_seqs_to_alternating_labels(align_seqs, lengths):
     """Converts the specified alignment data to labels.
