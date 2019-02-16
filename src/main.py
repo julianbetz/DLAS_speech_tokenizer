@@ -40,12 +40,13 @@ N_FEATURES = [loader.load(loader.ids[0])[0].shape[1] for loader in [
                seed=SEED)]][0]
 FEATURE_COLS = [tf.feature_column.numeric_column(key='features', shape=N_FEATURES)]
 
+
 @click.command()
 @click.option('--alignments/--no-alignments', '-a/', default=False, help='Whether to convert alignment data',
               show_default=True)
 @click.option('--spectrograms/--no-spectrograms', '-s/', default=False, help='Whether to convert the spectrograms',
               show_default=True)
-@click.option('--operation', '-o', type=click.Choice(['hyperoptimize', 'predict']),
+@click.option('--operation', '-o', type=click.Choice(['hyperoptimize', 'predict', 'train']),
               help='The operation to perform on the estimator')
 @click.option('--model_dir', '-d', default=None, type=str, help='Where to store model data.')
 @click.option('--tst_size', type=str,
