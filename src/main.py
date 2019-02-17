@@ -28,7 +28,7 @@ from matplotlib import pyplot as plt
 from pathlib2 import Path
 
 from data_handler import DataLoader, input_fn, TRAIN_MODE, EVAL_MODE, PRED_MODE, align_seqs_to_breaking_labels
-from kaldi_io import readArk
+# from kaldi_io import readArk
 from model import model_fn
 from util import progress
 
@@ -220,17 +220,17 @@ def convert(alignments, spectrograms):
         with open(output_dir + '/utterances.json', 'w') as file_handle:
             json.dump(sorted(tag_dict), file_handle, indent=4) # Asserts the same IDs in both alignments and spectrograms
         print(' DONE')
-    if spectrograms:
-        # Convert spectrograms
-        print('Loading spectrogram data (this may take some time)...', end='', flush=True)
-        feats, ids = readArk(input_dir + '/TEDLIUM_fbank_train_cleaned/unnormalized.feats.ark')
-        n_ids = len(ids)
-        print(' DONE')
-        start_time = time()
-        for i, (feat, id) in enumerate(zip(feats, ids)):
-            progress.print_bar(i, n_ids, 20, 'Storing spectrogram data... ┃', '┃')
-            np.save(utterances_output_dir + '/%s.npy' % (id,), feat)
-        progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
+#   if spectrograms:
+#       # Convert spectrograms
+#       print('Loading spectrogram data (this may take some time)...', end='', flush=True)
+#       feats, ids = readArk(input_dir + '/TEDLIUM_fbank_train_cleaned/unnormalized.feats.ark')
+#       n_ids = len(ids)
+#       print(' DONE')
+#       start_time = time()
+#       for i, (feat, id) in enumerate(zip(feats, ids)):
+#           progress.print_bar(i, n_ids, 20, 'Storing spectrogram data... ┃', '┃')
+#           np.save(utterances_output_dir + '/%s.npy' % (id,), feat)
+#       progress.print_bar(i + 1, n_ids, 20, 'Storing spectrogram data... ┃', '┃ DONE %.4fs' % (time() - start_time))
 
 
 def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, num_gpus, lstm_size, dense_sizes, dropout):
