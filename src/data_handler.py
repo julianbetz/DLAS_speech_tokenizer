@@ -284,7 +284,7 @@ def input_fn(loader, ids, batch_size=None, random_state=None, mode=TRAIN_MODE):
 
     dataset = Dataset.from_generator(load, dtypes, shapes)
     dataset = dataset.padded_batch(batch_size, shapes)
-    dataset = dataset.prefetch(buffer_size=batch_size*2)
+    dataset = dataset.prefetch(batch_size * 3)
     return dataset
 
 # data_handler.py ends here

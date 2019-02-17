@@ -167,10 +167,13 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
             print('    %s: %s' % (param, value))
         with open(model_dir + '/hyperparams_best.json', 'w') as hyperparams_best_file:
             json.dump(hyperparams_best, hyperparams_best_file)
-    # elif operation == 'train':
-    #     train(estimator, loader, n_epochs)
-    # elif operation == 'evaluate':
-    #     evaluate(estimator, loader)
+    elif operation == 'train':
+        #TODO find a way to always load best hyperparams from the json file
+        lstm_size = 139
+        dense_sizes = []
+        dropout = 0.594994017290150
+        train(model_dir, loader, n_samples, trn_size, batch_size, n_epochs, num_gpus, lstm_size=lstm_size,
+              dense_sizes=dense_sizes, dropout=dropout)
     elif operation == 'predict':
         predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size) # TODO Add hyperparams
 
@@ -278,8 +281,45 @@ def cross_validate(model_dir, loader, n_samples, n_splits, trn_size, batch_size,
     return loss
 
 
-def train(estimator, loader, n_epochs):  # TODO
-    raise NotImplementedError
+def train(model_dir, loader, n_samples, trn_size, batch_size, n_epochs, num_gpus, lstm_size, dense_sizes,
+          dropout):  # TODO
+
+    # Get train data
+    (trn_ids, evl_ids) = loader.train_test(n_samples=n_samples, trn_size=trn_size)
+
+    strategy = tf.contrib.distribute.MirroredStrategy(devices=["device:GPU:0","device:GPU:1","device:GPU:3"], prefetch_on_device=True)
+    config = tf.estimator.RunConfig(train_distribute=strategy)
+    
+    # Build the estimator
+    random_state = RandomState(BATCH_SEED)
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        params=dict(lstm_size=lstm_size,
+                    dense_sizes=dense_sizes,
+                    dropout=dropout,
+                    num_gpus=num_gpus),
+        model_dir=model_dir + '_train',
+        config=config
+    )
+    # Initialize weights:
+    # Train on nothing to make sure that a zero-global-step checkpoint exists.
+    # Any evaluation prior to this may be incorrect due to a different random initialization.
+    estimator.train(input_fn=lambda: input_fn(loader, [], 1, random_state, mode=TRAIN_MODE), steps=None)
+    eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids[:100], mode=EVAL_MODE))
+    for epoch in range(n_epochs):
+        progress.print_bar(epoch, n_epochs, 20, '        Epoch:    ┃', '┃ Accuracy:  %.6f | Precision:  %.6f | Recall:  %.6f | F1:  %.6f | Loss:  %.6f' % (eval_result['acc'],eval_result['precision'], eval_result['recall'], eval_result['f1'], eval_result['loss']))
+        estimator.train(input_fn=lambda: input_fn(loader, trn_ids, batch_size, random_state, mode=TRAIN_MODE), steps=None)  # Training
+        eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids[:100], mode=EVAL_MODE))
+
+
+    progress.print_bar(epoch + 1, n_epochs, 20, '        Epoch:    ┃', '┃')
+    # print final validation results
+    eval_result = estimator.evaluate(input_fn=lambda: input_fn(loader, evl_ids[:100], mode=EVAL_MODE))
+    print('        Accuracy:  %.6f' % (eval_result['acc'],))
+    print('        Precision: %.6f' % (eval_result['precision'],))
+    print('        Recall:    %.6f' % (eval_result['recall'],))
+    print('        F1:        %.6f' % (eval_result['f1'],))
+    print('        Loss:      %.6f' % (eval_result['loss'],))
 
 
 def evaluate(estimator, loader):  # TODO
@@ -290,27 +330,27 @@ def evaluate(estimator, loader):  # TODO
 
 # TODO
 def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size):
-    # raise NotImplementedError
-    params = {
-        'dropout': 0.5,
-        'lstm_size': lstm_size,
-        'learning_rate': 0.1
-    }
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn,
-        params=params,
-        model_dir=model_dir
-    )
+    raise NotImplementedError
+    # params = {
+    #     'dropout': 0.5,
+    #     'lstm_size': lstm_size,
+    #     'learning_rate': 0.1
+    # }
+    # estimator = tf.estimator.Estimator(
+    #     model_fn=model_fn,
+    #     params=params,
+    #     model_dir=model_dir
+    # )
 
-    predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
-    for pred_dict in predictions:
-        class_id_seq = list(pred_dict['predictions'].reshape(-1))
-        prob_seq = list(pred_dict['probabilities'].reshape(-1))
-        feat_seq, align_seq, _ = loader.load(loader.ids[0])
-        label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
-        print(len(class_id_seq),len(prob_seq), len(label_seq), len(feat_seq))
-        print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
-        print('Probs:  %s' % (prob_seq,), 'Labels: %s' % (label_seq,), sep='\n')
+    # predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
+    # for pred_dict in predictions:
+    #     class_id_seq = list(pred_dict['predictions'].reshape(-1))
+    #     prob_seq = list(pred_dict['probabilities'].reshape(-1))
+    #     feat_seq, align_seq, _ = loader.load(loader.ids[0])
+    #     label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
+    #     print(len(class_id_seq),len(prob_seq), len(label_seq), len(feat_seq))
+    #     print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
+    #     print('Probs:  %s' % (prob_seq,), 'Labels: %s' % (label_seq,), sep='\n')
 
 
 if __name__ == '__main__':
