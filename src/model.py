@@ -11,6 +11,29 @@
 import tensorflow as tf
 
 
+def window_diff(threshed_logits, labels, seq_lens):
+    # FIXME the asserts throw errors even if shapes are (theoretically, i.e. (?,?) vs (?,?) ) the same
+    # assert threshed_logits.shape == labels.shape, "Logits and targets have to be of same shape! %s vs %s" % (threshed_logits.shape, labels.shape)
+    # assert tf.rank(threshed_logits) == 2, "Rank of logits (and labels) has to be 2!"
+
+    # window length half of average of seq_lens as stated in original paper
+    s = tf.round(tf.reduce_mean(seq_lens) / 2)
+
+    # we can use max seq len since the padded values (all zeros in targets and labels) wont affect the window diff!
+    m = tf.reduce_max(seq_lens)
+
+    # label 'score'
+    ts = tf.reduce_sum(tf.stack([labels[:, j:j + (m - s) + 1] for j in tf.range(s)]), axis=1)
+
+    # logits 'score'
+    ls = tf.reduce_sum(tf.stack([threshed_logits[:, :, j:j + (m - s) + 1] for j in tf.range(s)]), axis=1)
+
+    # average diff for the whole batch
+    diff = tf.reduce_mean(tf.abs(ts - ls))
+
+    return diff
+
+
 def model_fn(features, labels, mode, params):
     """
     Build the model. That is a Bi-LSTM
