@@ -97,19 +97,19 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
     if model_dir is None:
         now = datetime.datetime.now()
         model_dir = os.path.dirname(os.path.abspath(__file__)) + ('/../models/%s_%s' % (now.date(), now.time()))
-    model_dir = os.path.abspath(os.path.expanduser(model_dir))
-    os.makedirs(model_dir)
+        model_dir = os.path.abspath(os.path.expanduser(model_dir))
+        os.makedirs(model_dir)
     print('Output directory: %s' % (model_dir,))
 
     # Setup logging
     # Change verbosity to info and log everything to a file (i.e. ../<model_dir>/main.log)
-    tf.logging.set_verbosity(logging.INFO)
-    logging.getLogger('tensorflow').handlers = [
-        logging.FileHandler(model_dir + '/main.log'),
-        # logging.StreamHandler(sys.stdout)
-    ]
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
-    print('Tensorflow debugging output is suppressed')
+    # tf.logging.set_verbosity(logging.INFO)
+    # logging.getLogger('tensorflow').handlers = [
+    #     logging.FileHandler(model_dir + '/main.log'),
+    #     # logging.StreamHandler(sys.stdout)
+    # ]
+    # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # Suppress tensorflow debugging output
+    # print('Tensorflow debugging output is suppressed')
 
     # Handle data loading
     loader = DataLoader(os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + '/../dat/fast_load'),
@@ -176,7 +176,11 @@ def main(alignments, spectrograms, operation, model_dir, tst_size, n_samples, n_
         train(model_dir, loader, n_samples, trn_size, batch_size, n_epochs, num_gpus, lstm_size=lstm_size,
               dense_sizes=dense_sizes, dropout=dropout)
     elif operation == 'predict':
-        predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size) # TODO Add hyperparams
+        # TODO find a way to always load best hyperparams from the json file
+        lstm_size = 139
+        dense_sizes = []
+        dropout = 0.594994017290150
+        predict(model_dir, loader,num_gpus,lstm_size=lstm_size, dense_sizes=dense_sizes, dropout=dropout)
 
 
 def convert(alignments, spectrograms):
@@ -288,7 +292,7 @@ def train(model_dir, loader, n_samples, trn_size, batch_size, n_epochs, num_gpus
     # Get train data
     (trn_ids, evl_ids) = loader.train_test(n_samples=n_samples, trn_size=trn_size)
 
-    strategy = tf.contrib.distribute.MirroredStrategy(devices=["device:GPU:0","device:GPU:1","device:GPU:3"], prefetch_on_device=True)
+    strategy = tf.contrib.distribute.MirroredStrategy(devices=["device:GPU:0"], prefetch_on_device=True)
     config = tf.estimator.RunConfig(train_distribute=strategy)
     
     # Build the estimator
@@ -330,28 +334,26 @@ def evaluate(estimator, loader):  # TODO
 
 
 # TODO
-def predict(model_dir, loader, n_samples, n_splits, trn_size, batch_size, n_epochs, lstm_size):
-    raise NotImplementedError
-    # params = {
-    #     'dropout': 0.5,
-    #     'lstm_size': lstm_size,
-    #     'learning_rate': 0.1
-    # }
-    # estimator = tf.estimator.Estimator(
-    #     model_fn=model_fn,
-    #     params=params,
-    #     model_dir=model_dir
-    # )
+def predict(model_dir, loader,num_gpus,lstm_size, dense_sizes, dropout):
 
-    # predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
-    # for pred_dict in predictions:
-    #     class_id_seq = list(pred_dict['predictions'].reshape(-1))
-    #     prob_seq = list(pred_dict['probabilities'].reshape(-1))
-    #     feat_seq, align_seq, _ = loader.load(loader.ids[0])
-    #     label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
-    #     print(len(class_id_seq),len(prob_seq), len(label_seq), len(feat_seq))
-    #     print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
-    #     print('Probs:  %s' % (prob_seq,), 'Labels: %s' % (label_seq,), sep='\n')
+    estimator = tf.estimator.Estimator(
+        model_fn=model_fn,
+        params=dict(lstm_size=lstm_size,
+                    dense_sizes=dense_sizes,
+                    dropout=dropout,
+                    num_gpus=num_gpus),
+        warm_start_from=model_dir
+    )
+
+    predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
+    for i, pred_dict in enumerate(predictions):
+        class_id_seq = list(pred_dict['predictions'].reshape(-1))
+        prob_seq = list(pred_dict['probabilities'].reshape(-1))
+        feat_seq, align_seq, _ = loader.load(loader.ids[i])
+        label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
+        print(len(class_id_seq),len(prob_seq), len(label_seq), len(feat_seq))
+        print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
+        print('Probs:  %s' % (prob_seq,), 'Labels: %s' % (label_seq,), sep='\n')
 
 
 if __name__ == '__main__':
