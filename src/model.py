@@ -10,10 +10,10 @@
 
 import tensorflow as tf
 
-def window_diff(threshed_logits, labels, seq_lens):
+def window_diff(preds, labels, seq_lens):
     # FIXME the asserts throw errors even if shapes are (theoretically, i.e. (?,?) vs (?,?) ) the same
-    # assert threshed_logits.shape == labels.shape, "Logits and targets have to be of same shape! %s vs %s" % (threshed_logits.shape, labels.shape)
-    # assert tf.rank(threshed_logits) == 2, "Rank of logits (and labels) has to be 2!"
+    # assert preds.shape == labels.shape, "Predictions and targets have to be of same shape! %s vs %s" % (preds.shape, labels.shape)
+    # assert tf.rank(preds) == 2, "Rank of predictions (and labels) has to be 2!"
 
     # window length half of average of seq_lens as stated in original paper (342 was computed with external script..)
     s = 342  #tf.round(tf.reduce_mean(seq_lens) / 2)
@@ -25,16 +25,17 @@ def window_diff(threshed_logits, labels, seq_lens):
     # label 'score'
     ts = tf.reduce_sum(tf.stack([labels[:, j:j + (m - s) + 1] for j in range(s)]), axis=0)
 
-    # logits 'score'
-    ls = tf.reduce_sum(tf.stack([threshed_logits[:, j:j + (m - s) + 1] for j in range(s)]), axis=0)
+    # predictions 'score'
+    ls = tf.reduce_sum(tf.stack([preds[:, j:j + (m - s) + 1] for j in range(s)]), axis=0)
 
     # build the seq_len_mask
-    seq_len_mask = tf.constant(1., shape=ls.shape)
+    # seq_len_mask = tf.constant(1., shape=ls.shape)
+    seq_len_mask = tf.cast(tf.sequence_mask(seq_lens - s + 1), tf.float32)
 
 
     # sum sequence diff and then take average for the whole batch with taking the sequence length into account
-    diff = tf.reduce_sum(tf.abs(ts - ls) * tf.cast(seq_len_mask, tf.float32))
-    diff = diff / tf.cast((m - tf.constant(s, tf.int32)), tf.float32)
+    diff = tf.reduce_sum(tf.abs(ts - ls) * seq_len_mask)
+    diff = diff / tf.reduce_sum(seq_len_mask)
     return diff
 
 
@@ -83,9 +84,12 @@ def model_fn(features, labels, mode, params):
         preds = tf.sigmoid(logits)
 
         # threshold the sigmoid logits by theta
-        positive_class_weight = 27.244325949851728 / 2
-        t = tf.constant(1 / (positive_class_weight + 1), tf.float32)
-        threshed_preds = tf.where(tf.greater_equal(tf.sigmoid(logits), t), tf.sigmoid(logits), tf.zeros(tf.shape(logits), tf.float32))
+        # positive_class_weight = 27.244325949851728 / 2
+        # t = tf.constant(1 / (positive_class_weight + 1), tf.float32)
+        t = 0.5
+        threshed_preds = tf.where(tf.greater_equal(preds, t),
+                                  tf.ones(tf.shape(preds), tf.float32),
+                                  tf.zeros(tf.shape(preds), tf.float32))
 
 
         # print("feature_vectors.shape: %s" % feature_vectors.shape)
@@ -111,7 +115,7 @@ def model_fn(features, labels, mode, params):
         #     pos_weight=tf.constant(27.244325949851728 / 2, tf.float32))
         # loss = tf.reduce_sum(weighted_cross_entropy * tf.cast(seq_len_mask, tf.float32))
         # loss = loss / tf.reduce_sum(tf.cast(seq_lens, tf.float32))
-        loss = window_diff(threshed_logits=threshed_preds[:, :, 0], labels=labels, seq_lens=seq_lens)
+        loss = window_diff(preds=preds[:, :, 0], labels=labels, seq_lens=seq_lens)
 
         # Metrics
         metrics = {
