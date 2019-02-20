@@ -111,7 +111,7 @@ class DataLoader:
         """
         r = RandomState(self.seed)
         ids = shuffle(self.ids, random_state=r, n_samples=self.tst_size)
-        print(ids, type(ids))
+        # print(ids, type(ids))
         return ids
 
     def test_set(self):

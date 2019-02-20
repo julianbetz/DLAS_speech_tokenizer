@@ -344,16 +344,33 @@ def predict(model_dir, loader,num_gpus,lstm_size, dense_sizes, dropout):
                     num_gpus=num_gpus),
         warm_start_from=model_dir
     )
+    pred_ids = loader.test_set_ids()
+    feat_seqs, align_seqs, _ = loader.load(pred_ids)
+    label_seqs = [align_seqs_to_breaking_labels(align_seqs[i], len(feat_seqs[i])) for i in range(len(pred_ids))]
 
-    predictions = estimator.predict(input_fn=lambda: input_fn(loader, loader.ids[:1], mode=PRED_MODE))
+    predictions = estimator.predict(input_fn=lambda: input_fn(loader, pred_ids, mode=PRED_MODE))
     for i, pred_dict in enumerate(predictions):
-        class_id_seq = list(pred_dict['predictions'].reshape(-1))
-        prob_seq = list(pred_dict['probabilities'].reshape(-1))
-        feat_seq, align_seq, _ = loader.load(loader.ids[i])
-        label_seq = list(align_seqs_to_breaking_labels(align_seq, feat_seq.shape[0]))
-        print(len(class_id_seq),len(prob_seq), len(label_seq), len(feat_seq))
-        print('Preds:  %s' % (class_id_seq,), 'Labels: %s' % (label_seq,), sep='\n')
-        print('Probs:  %s' % (prob_seq,), 'Labels: %s' % (label_seq,), sep='\n')
+        class_id_seq = list(pred_dict['predictions'][:len(label_seqs[i])].reshape(-1))
+        prob_seq = list(pred_dict['probabilities'][:len(label_seqs[i])].reshape(-1))
+
+        plotLabelsAndPredictions(label_seqs[i], class_id_seq)
+
+def plotLabelsAndPredictions(labels, preds):
+    assert len(labels) == len(preds)
+    t = np.arange(0, len(labels), 1, dtype=np.int32)
+
+    plt.stem(t, labels, linefmt='b-', markerfmt='bo', basefmt=' ', label='label')
+    plt.stem(t, preds, linefmt='r:', markerfmt='ro', basefmt=' ', label='target')
+
+    plt.xlim(0, len(labels))
+    plt.xlabel('t [ms]')
+
+    plt.ylim(0, 1)
+    plt.yticks([0.0, 1.0])
+
+    plt.legend(loc=7)
+
+    plt.show()
 
 
 if __name__ == '__main__':
