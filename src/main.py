@@ -344,7 +344,8 @@ def predict(model_dir, loader,num_gpus,lstm_size, dense_sizes, dropout):
                     num_gpus=num_gpus),
         warm_start_from=model_dir
     )
-    pred_ids = loader.test_set_ids()
+
+    pred_ids = loader.test_set_ids()[:100]
     feat_seqs, align_seqs, _ = loader.load(pred_ids)
     label_seqs = [align_seqs_to_breaking_labels(align_seqs[i], len(feat_seqs[i])) for i in range(len(pred_ids))]
 
@@ -359,8 +360,8 @@ def plotLabelsAndPredictions(labels, preds):
     assert len(labels) == len(preds)
     t = np.arange(0, len(labels), 1, dtype=np.int32)
 
-    plt.stem(t, labels, linefmt='b-', markerfmt='bo', basefmt=' ', label='label')
-    plt.stem(t, preds, linefmt='r:', markerfmt='ro', basefmt=' ', label='target')
+    plt.stem(t, labels, linefmt='b-', markerfmt='bo', basefmt=' ', label='target')
+    plt.stem(t, preds, linefmt='r:', markerfmt='ro', basefmt=' ', label='prediction')
 
     plt.xlim(0, len(labels))
     plt.xlabel('t [ms]')
